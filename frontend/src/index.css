@@ -1,0 +1,34 @@
+/* frontend/src/index.css */
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --safe-area-top: max(env(safe-area-inset-top), 20px);
+    --safe-area-bottom: max(env(safe-area-inset-bottom), 16px);
+  }
+
+  body {
+    /* Глубокий темный графитово-синий фон вместо чистого черного */
+    background: radial-gradient(circle at top right, #131926 0%, #0A0D14 60%, #06080C 100%);
+    color: #F3F4F6;
+    margin: 0;
+    padding: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Скрытие системного скроллбара для эффекта нативного приложения */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.pt-safe {
+  padding-top: var(--safe-area-top);
+}
+
+.pb-safe {
+  padding-bottom: var(--safe-area-bottom);
+}

@@ -1,0 +1,9 @@
+# backend/app/models/__init__.py
+from app.models.base import Base
+from app.models.finance import Transaction, RecurringPayment, CreditDebt, TransactionType
+from app.models.work import WorkShift
+
+__all__ = [
+    "Base", "Transaction", "RecurringPayment", 
+    "CreditDebt", "TransactionType", "WorkShift"
+]

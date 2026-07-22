@@ -1,0 +1,116 @@
+# ================================================================= #
+# 1. СЕКРЕТЫ И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (НАЙВАЖНЕЙШЕЕ)                  #
+# ================================================================= #
+.env
+.env.*
+!.env.example
+!.env.template
+*.local
+
+# ================================================================= #
+# 2. BACKEND (Python / FastAPI / Alembic / AIogram)                 #
+# ================================================================= #
+# Виртуальное окружение
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Кэш байт-кода и скомпилированные файлы
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Базы данных (если тестируешь локально на SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи и кэш тестов/линтеров
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# Упаковка и дистрибутивы
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# ================================================================= #
+# 3. FRONTEND (Node.js / React / Vite / TypeScript)                 #
+# ================================================================= #
+# Зависимости
+node_modules/
+/.pnp
+.pnp.js
+
+# Продуктовая сборка (статика, которую генерирует Vite)
+frontend/dist/
+frontend/build/
+*.tsbuildinfo
+
+# Кэш сборщиков и временные файлы Vite
+.vite/
+.eslintcache
+.stylelintcache
+
+# Логи пакетных менеджеров
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ================================================================= #
+# 4. ДЕПЛОЙ, ПРОЦЕССЫ (PM2 / Caddy) И ВРЕМЕННЫЕ ФАЙЛЫ               #
+# ================================================================= #
+# Логи и PID-файлы PM2 / системные логи
+*.pid
+*.seed
+*.pid.lock
+access.log
+error.log
+
+# Загружаемые пользователями файлы (если тестируешь парсер выписок локально)
+uploads/
+temp/
+*.pdf
+*.csv
+
+# ================================================================= #
+# 5. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ КОДА (IDE)                         #
+# ================================================================= #
+# macOS / Windows / Linux
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# VS Code / Cursor
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains (PyCharm / WebStorm / IntelliJ)
+.idea/
+*.iml
+*.iws
+
+# Другие редакторы
+.sublimé-*
+*.swp
+*.swo
+*~
