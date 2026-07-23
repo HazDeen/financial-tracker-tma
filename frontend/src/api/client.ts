@@ -21,10 +21,20 @@ export const api = axios.create({
 });
 
 export const getTelegramUserId = (): number => {
+  // 1. Пробуем достать ID из глобального окна напрямую (самый надежный способ в TMA)
+  const tg = (window as any)?.Telegram?.WebApp;
+  if (tg?.initDataUnsafe?.user?.id) {
+    return tg.initDataUnsafe.user.id;
+  }
+  
+  // 2. Пробуем через импортированный SDK
   if (typeof window !== 'undefined' && WebApp?.initDataUnsafe?.user?.id) {
     return WebApp.initDataUnsafe.user.id;
   }
-  return 1; 
+  
+  // 3. Фолбэк для тестов в обычном браузере
+  console.warn("Telegram WebApp не обнаружен, используется ID 1");
+  return 1;
 };
 
 api.interceptors.request.use((config) => {
