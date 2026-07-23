@@ -47,7 +47,7 @@ async def main():
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="📊 Открыть Smart Finance", 
-                web_app=WebAppInfo(url="https://finance.hazdeen.xyz")
+                web_app=WebAppInfo(url="https://app.hazdeen.xyz")
             )]
         ])
         
