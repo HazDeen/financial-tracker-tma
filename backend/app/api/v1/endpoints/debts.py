@@ -1,3 +1,4 @@
+from app.core.auth import get_current_user_id
 # backend/app/api/v1/endpoints/debts.py
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Path, status
@@ -11,7 +12,7 @@ router = APIRouter()
 @router.post("/", response_model=CreditDebtResponse, status_code=status.HTTP_201_CREATED)
 async def create_debt(
     schema: CreditDebtCreate,
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Создать новую запись о кредите, ипотеке или долге."""
@@ -20,7 +21,7 @@ async def create_debt(
 @router.get("/", response_model=List[CreditDebtResponse], status_code=status.HTTP_200_OK)
 async def get_debts(
     is_closed: Optional[bool] = Query(None, description="Фильтр: true - закрытые, false - активные"),
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Получить список всех кредитов и долгов пользователя."""
@@ -30,7 +31,7 @@ async def get_debts(
 async def pay_debt(
     schema: CreditDebtPayment,
     debt_id: int = Path(..., gt=0),
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Внести платеж по кредиту. При достижении нулевого баланса долг автоматически закрывается."""
@@ -39,7 +40,7 @@ async def pay_debt(
 @router.delete("/{debt_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_debt(
     debt_id: int = Path(..., gt=0),
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Удалить запись о долге."""

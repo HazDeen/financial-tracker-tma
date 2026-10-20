@@ -30,7 +30,7 @@ export const TelegramProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [webApp, setWebApp] = useState<typeof WebApp | null>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && WebApp) {
+    if (typeof window !== 'undefined' && WebApp?.initData) {
       WebApp.ready();
       WebApp.expand();
 

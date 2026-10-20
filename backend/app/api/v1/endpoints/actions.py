@@ -1,3 +1,4 @@
+from app.core.auth import get_current_user_id
 # backend/app/api/v1/endpoints/actions.py
 from fastapi import APIRouter, Depends, Query, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,7 @@ class PayDebtRequest(BaseModel):
 @router.post("/shifts/{shift_id}/pay", response_model=WorkShiftResponse, status_code=status.HTTP_200_OK)
 async def mark_shift_as_paid(
     shift_id: int = Path(..., gt=0),
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Отмечает смену как оплаченную в реальной БД и пересчитывает баланс."""
@@ -29,7 +30,7 @@ async def mark_shift_as_paid(
 async def pay_debt_installment(
     payload: PayDebtRequest,
     debt_id: int = Path(..., gt=0),
-    user_id: int = Query(1, description="ID пользователя Telegram"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Вносит платеж по долгу в реальную БД."""

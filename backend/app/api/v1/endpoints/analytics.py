@@ -1,3 +1,4 @@
+from app.core.auth import get_current_user_id
 # backend/app/api/v1/endpoints/analytics.py
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +12,7 @@ router = APIRouter()
 async def get_monthly_analytics(
     year: int = Query(..., ge=2000, le=2100, description="Год (например, 2026)"),
     month: int = Query(..., ge=1, le=12, description="Номер месяца (1-12)"),
-    user_id: int = Query(1, description="ID пользователя Telegram (временно через Query)"),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """

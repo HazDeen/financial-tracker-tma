@@ -6,7 +6,7 @@ from app.core.config import settings
 # Инициализация асинхронного движка (echo=True полезен для дебага SQL-запросов в разработке)
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
+    echo=False,
     future=True
 )
 

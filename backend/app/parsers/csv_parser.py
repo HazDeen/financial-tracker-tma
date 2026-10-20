@@ -1,9 +1,7 @@
 # backend/app/parsers/csv_parser.py
 import io
 import re
-import pandas as pd
 from typing import List
-from datetime import datetime
 from decimal import Decimal
 from app.schemas.statements import ParsedTransactionDTO
 
@@ -69,81 +67,93 @@ class CSVParser:
 
     @staticmethod
     def parse(content: bytes) -> List[ParsedTransactionDTO]:
+        import csv
+        from decimal import InvalidOperation
+        from dateutil.parser import parse as parse_date
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=';', encoding='utf-8')
-            if len(df.columns) == 1:
-                df = pd.read_csv(io.BytesIO(content), sep=',', encoding='utf-8-sig')
+            text = content.decode("utf-8-sig")
         except UnicodeDecodeError:
-            try:
-                df = pd.read_csv(io.BytesIO(content), sep=';', encoding='cp1251')
-                if len(df.columns) == 1:
-                    df = pd.read_csv(io.BytesIO(content), sep=',', encoding='cp1251')
-            except Exception:
-                return []
-                
-        df.columns = [str(col).strip().lower() for col in df.columns]
-        
-        col_map = {
-            "date": next((c for c in df.columns if "operationdate" in c or "дат" in c or "date" in c), None),
-            "amount": next((c for c in df.columns if "сумм" in c or "amount" in c), None),
-            "category": next((c for c in df.columns if "катег" in c or "category" in c), None),
-            "mcc": next((c for c in df.columns if "mcc" in c), None),
-            "merchant": next((c for c in df.columns if "merchant" in c or "контрагент" in c), None),
-            "comment": next((c for c in df.columns if "опис" in c or "назван" in c or "comment" in c or "desc" in c), None),
-            "type": next((c for c in df.columns if "type" in c or "тип" in c), None),
-        }
-        
-        if not col_map["date"] or not col_map["amount"]:
-            return []
-            
+            text = content.decode("cp1251")
+        lines = text.splitlines()
+        header_index = next((i for i, line in enumerate(lines[:40])
+                             if any(x in line.lower() for x in ["дата", "date"])
+                             and any(x in line.lower() for x in ["сумм", "amount", "приход", "дебет"])), None)
+        if header_index is None:
+            raise ValueError("Не найдены заголовки с датой и суммой операции")
+        delimiter = max([";", ",", "\t"], key=lines[header_index].count)
+        reader = csv.DictReader(io.StringIO("\n".join(lines[header_index:])), delimiter=delimiter)
+        columns = {str(c).strip().lower().replace("ё", "е"): c for c in reader.fieldnames or [] if c}
+
+        def column(*names):
+            return next((columns[name] for name in names if name in columns), None)
+
+        date_col = column("дата операции", "дата совершения операции", "дата учета операции по счету", "operationdate", "date", "дата")
+        amount_col = column("сумма платежа", "сумма в валюте счета", "сумма операции в валюте счета", "сумма операции", "amount", "сумма")
+        income_col = column("приход", "кредит", "зачисление", "поступление")
+        expense_col = column("расход", "дебет", "списание")
+        if not date_col or not (amount_col or (income_col and expense_col)):
+            raise ValueError("Нужны дата операции и сумма либо отдельные колонки прихода и расхода")
+        currency_col = column("валюта платежа", "валюта счета", "currency", "валюта")
+        if not currency_col and amount_col == column("сумма операции"):
+            currency_col = column("валюта операции")
+        desc_col = column("описание операции", "описание", "назначение платежа", "description", "comment")
+        category_col = column("категория", "category")
+        mcc_col = column("mcc", "mcc код", "mcc-код")
+        type_col = column("тип", "type", "тип операции")
+        status_col = column("статус", "status")
+        reference_col = column("референс проводки", "id операции", "код авторизации", "reference")
+        account_col = column("номер счета", "номер карты", "account")
+
+        def money(value):
+            clean = re.sub(r"[\s\u00a0\u202f₽]", "", value or "0").replace("−", "-").replace(",", ".")
+            result = Decimal(clean)
+            if not result.is_finite() or abs(result) >= Decimal("10000000000") or result.as_tuple().exponent < -2:
+                raise ValueError("некорректная сумма")
+            return result
+
         results = []
-        for _, row in df.iterrows():
-            try:
-                amount_str = str(row[col_map["amount"]]).replace(",", ".").replace(" ", "").replace("\xa0", "")
-                raw_amount = Decimal(amount_str)
-                if raw_amount == 0:
-                    continue
-                
-                tx_type = "expense"
-                if col_map["type"] and pd.notna(row[col_map["type"]]):
-                    type_val = str(row[col_map["type"]]).lower()
-                    if "пополнение" in type_val or "income" in type_val or "приход" in type_val:
-                        tx_type = "income"
-                elif raw_amount > 0:
-                    tx_type = "income"
-                else:
-                    tx_type = "expense"
-                    
-                abs_amount = abs(raw_amount)
-                tx_date = pd.to_datetime(row[col_map["date"]], dayfirst=True).to_pydatetime()
-                
-                desc_parts = []
-                if col_map["merchant"] and pd.notna(row[col_map["merchant"]]):
-                    desc_parts.append(str(row[col_map["merchant"]]).strip())
-                if col_map["comment"] and pd.notna(row[col_map["comment"]]):
-                    desc_parts.append(str(row[col_map["comment"]]).strip())
-                
-                full_desc = " ".join(desc_parts) if desc_parts else "Описание отсутствует"
-                
-                mcc_val = str(row[col_map["mcc"]]) if col_map["mcc"] and pd.notna(row[col_map["mcc"]]) else ""
-                bank_cat = str(row[col_map["category"]]) if col_map["category"] and pd.notna(row[col_map["category"]]) else ""
-                
-                category = CSVParser._determine_category(full_desc, mcc_val, tx_type, bank_cat)
-                
-                mcc_formatted = None
-                if mcc_val and mcc_val not in ["nan", "0"]:
-                    mcc_formatted = str(int(float(mcc_val)))
-                
-                results.append(ParsedTransactionDTO(
-                    amount=abs_amount,
-                    currency="RUB",
-                    transaction_type=tx_type,
-                    category=category,
-                    mcc_code=mcc_formatted,
-                    description=full_desc[:150],
-                    transaction_date=tx_date
-                ))
-            except (ValueError, KeyError, TypeError):
+        for row_number, row in enumerate(reader, header_index + 2):
+            if not any(value and str(value).strip() for value in row.values()):
                 continue
-                
+            try:
+                def val(key):
+                    return (row.get(key) or "").strip() if key else ""
+                if val(status_col).lower() not in {"", "ok", "выполнено", "исполнено", "успешно", "проведена"}:
+                    continue
+                # Служебные строки и второй локализованный заголовок Альфа-Бизнес.
+                if val(date_col).lower() in {"дата операции", "дата учета операции по счету"}:
+                    continue
+                if income_col and expense_col:
+                    incoming, outgoing = money(val(income_col)), money(val(expense_col))
+                    if incoming < 0 or outgoing < 0 or (incoming and outgoing):
+                        raise ValueError("неоднозначные приход и расход")
+                    raw_amount = incoming - outgoing
+                else:
+                    raw_amount = money(val(amount_col))
+                if not raw_amount:
+                    continue
+                tx_type = "income" if raw_amount > 0 else "expense"
+                type_value = val(type_col).lower()
+                if type_value in {"expense", "расход", "списание", "покупка"}:
+                    tx_type = "expense"
+                elif type_value in {"income", "приход", "пополнение", "зачисление"}:
+                    tx_type = "income"
+                currency = val(currency_col).upper() or "RUB"
+                if currency in {"RUR", "643", "810", "₽", "РУБ", "РУБ."}:
+                    currency = "RUB"
+                if currency != "RUB":
+                    raise ValueError("поддерживаются операции в рублях; выберите сумму в валюте рублевого счета")
+                dt = parse_date(val(date_col), dayfirst=not bool(re.match(r"^\d{4}-", val(date_col))))
+                desc = val(desc_col) or "Описание отсутствует"
+                mcc = val(mcc_col)
+                mcc = str(int(float(mcc))) if mcc else None
+                if mcc and not re.fullmatch(r"\d{4}", mcc):
+                    raise ValueError("некорректный MCC")
+                results.append(ParsedTransactionDTO(
+                    amount=abs(raw_amount), currency=currency, transaction_type=tx_type,
+                    category=CSVParser._determine_category(desc, mcc or "", tx_type, val(category_col)),
+                    mcc_code=mcc, description=desc, transaction_date=dt,
+                    source_id="|".join([val(account_col), val(reference_col)])))
+            except (ValueError, TypeError, InvalidOperation, OverflowError) as exc:
+                raise ValueError(f"Строка {row_number}: {exc}. Файл не импортирован") from exc
         return results

@@ -1,151 +1,103 @@
-# backend/app/parsers/pdf_parser.py
+"""Text-based card statements. Ambiguous/unsupported layouts are rejected."""
+import csv
 import io
 import re
-import pdfplumber
 from datetime import datetime
 from decimal import Decimal
 from typing import List
-
+import pdfplumber
+from app.parsers.csv_parser import CSVParser
 from app.schemas.statements import ParsedTransactionDTO
+
+DATE = r"\d{2}\.\d{2}\.\d{4}"
+MONEY = r"[+−-]?\s*\d+(?:[ \xa0\u202f]\d{3})*[.,]\d{2}"
 
 
 class PDFParser:
-    
-    @staticmethod
-    def _determine_category(description: str, mcc: str, amount: Decimal, tx_type: str) -> str:
-        # 1. Поиск по MCC-коду (Высокий приоритет)
-        if mcc:
-            mcc_map = {
-                "5411": "Супермаркеты",
-                "5499": "Продукты",
-                "5814": "Фастфуд и Кафе",
-                "5812": "Рестораны",
-                "5813": "Бары",
-                "5921": "Алкоголь",
-                "5992": "Цветы",
-                "5912": "Аптеки",
-                "4111": "Транспорт",
-                "7512": "Каршеринг",
-                "3990": "Сервисы Яндекса",
-            }
-            if mcc in mcc_map:
-                return mcc_map[mcc]
-                
-        # 2. Фолбэк-поиск по ключевым словам в тексте
-        desc_lower = description.lower()
-        
-        # --- НОВЫЕ КАТЕГОРИИ: Маркетплейсы и Я.Пэй ---
-        if re.search(r'\bwb\b|wildberries|вайлдберриз|ozon|озон', desc_lower):
-            return "Маркетплейсы"
-        if "яндекс пэй" in desc_lower or "yandex pay" in desc_lower:
-            return "Переводы (Яндекс Пэй)"
-            
-        # Остальные проверки
-        if "систему быстрых платежей" in desc_lower or "перевод" in desc_lower:
-            return "Переводы"
-        if "cashback" in desc_lower or "программы лояльности" in desc_lower or "выплата" in desc_lower:
-            return "Кэшбэк и бонусы"
-        if "комиссия" in desc_lower or "уведомления" in desc_lower:
-            return "Комиссии банка"
-        if "яндекс" in desc_lower or "yandex" in desc_lower:
-            return "Сервисы Яндекса"
-        if any(kw in desc_lower for kw in ["pyaterochka", "пятерочка", "dixy", "lenta", "лента", "perekrestok", "перекресток", "krasnoe beloe", "gastronom", "magnit"]):
-            return "Супермаркеты"
-        if "delimobil" in desc_lower or "каршеринг" in desc_lower:
-            return "Каршеринг"
-        if "apteka" in desc_lower or "аптека" in desc_lower:
-            return "Аптеки"
-        if "winelab" in desc_lower or "aroma market" in desc_lower:
-            return "Алкоголь"
-        if "qr" in desc_lower:
-            return "Оплата по QR"
-            
-        return "Пополнения" if tx_type == "income" else "Разное"
-    
     @staticmethod
     def parse(content: bytes) -> List[ParsedTransactionDTO]:
-        results = []
-        
         with pdfplumber.open(io.BytesIO(content)) as pdf:
-            full_text = ""
+            if len(pdf.pages) > 100:
+                raise ValueError("Максимум 100 страниц в одной выписке")
+            full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            # Таблицы с явными колонками прихода/расхода или подписанными суммами.
+            table_results = []
             for page in pdf.pages:
-                # Читаем текст "как видит человек"
-                text = page.extract_text()
-                if text:
-                    full_text += text + " \n "
-                    
-        # Схлопываем переносы строк для защиты от разорванных ячеек
-        clean_text = full_text.replace('\n', ' ')
-        clean_text = re.sub(r'\s+', ' ', clean_text)
-        
-        # Рубим весь текст документа строго перед каждой датой (DD.MM.YYYY)
-        chunks = re.split(r'(?=\b\d{2}\.\d{2}\.\d{4}\b)', clean_text)
-        
-        # Стоп-слова: всё, что является шапкой, подвалом или зависшим холдом
-        skip_kws = [
-            "входящий остаток", "исходящий остаток", "поступления", "расходы", 
-            "текущий баланс", "платежный лимит", "неподтвержденные", "hold", 
-            "за период", "выписка по счету", "дата открытия"
-        ]
-        
-        for chunk in chunks:
-            chunk = chunk.strip()
-            if not chunk:
+                for table in page.extract_tables():
+                    header = next((i for i, row in enumerate(table[:6])
+                                   if any("дата" in (cell or "").lower() for cell in row)
+                                   and any(any(word in (cell or "").lower() for word in ["сумма", "приход", "дебет"]) for cell in row)), None)
+                    if header is None:
+                        continue
+                    rows = [[re.sub(r"\s+", " ", cell or "").strip() for cell in row] for row in table[header:]]
+                    # Для беззнаковых карточных PDF нужно учитывать отдельные правила банка.
+                    has_direction = any(any(word in cell.lower() for word in ["приход", "кредит", "расход", "дебет"]) for cell in rows[0])
+                    if not has_direction:
+                        continue
+                    output = io.StringIO()
+                    csv.writer(output, delimiter=";").writerows(rows)
+                    table_results.extend(CSVParser.parse(output.getvalue().encode()))
+            if table_results:
+                return table_results
+        return PDFParser.parse_text(full_text)
+
+    @staticmethod
+    def parse_text(text: str) -> List[ParsedTransactionDTO]:
+        is_sber = bool(re.search(r"сбер|sber|www\.sberbank\.ru", text, re.I))
+        is_tbank = bool(re.search(r"т[\s-]*банк|тинькофф|tinkoff|t[\s-]*bank|t[\s-]*банк", text, re.I))
+        is_alfa = bool(re.search(r"альфа|alfa", text, re.I))
+        if not (is_sber or is_tbank or is_alfa):
+            raise ValueError("Банк или формат PDF не распознан. Загрузите CSV с колонками даты и суммы")
+        # Не склеиваем все даты документа: шапки и итоги не являются операциями.
+        records = []
+        for line in text.splitlines():
+            line = re.sub(r"[ \t]+", " ", line).strip()
+            if re.match(rf"^{DATE}\b", line) and re.search(MONEY, line):
+                records.append(line)
+            elif records and line and not re.search(r"остаток|итого|оборот|лицензи|страниц|www\.|выписка|подпись", line, re.I):
+                records[-1] += " " + line
+        results = []
+        for record in records:
+            if re.search(r"остаток|оборот|итого|за период|дата открытия|задолженность", record, re.I):
                 continue
-                
-            # 1. Защита: чанк обязан начинаться с даты
-            date_match = re.match(r'^(\d{2}\.\d{2}\.\d{4})', chunk)
+            date_match = re.match(rf"^({DATE})(?:\s+(\d{{2}}:\d{{2}}(?::\d{{2}})?))?", record)
             if not date_match:
                 continue
-                
-            # 2. Фильтр мусора
-            if any(kw in chunk.lower() for kw in skip_kws):
-                continue
-                
-            # 3. Ищем сумму. В Альфе она идет в формате "X XXX,XX RUR" в конце блока
-            amounts = re.findall(r'([-+]?\s*\d{1,3}(?:[ \xa0]\d{3})*(?:[.,]\d{2}))\s*(?:RUR|RUB)', chunk, re.IGNORECASE)
-            
+            body = record[date_match.end():].strip()
+            amounts = list(re.finditer(MONEY, body))
             if not amounts:
                 continue
-            
-            # Берем самую последнюю найденную сумму (вдруг в описании попались цифры)
-            raw_amount = amounts[-1].replace(" ", "").replace("\xa0", "").replace(",", ".")
-            
-            try:
-                amount_val = Decimal(raw_amount)
-                if amount_val == 0:
-                    continue
-                    
-                tx_type = "income" if amount_val > 0 else "expense"
-                abs_amount = abs(amount_val)
-                
-                tx_date = datetime.strptime(date_match.group(1), "%d.%m.%Y")
-                
-                # 4. Высчитываем описание (вырезаем из чанка дату и саму сумму)
-                desc = chunk.replace(date_match.group(1), "", 1)
-                desc = desc.replace(amounts[-1], "", 1)
-                desc = re.sub(r'\b(RUR|RUB)\b', '', desc, flags=re.IGNORECASE).strip()
-                
-                # Парсим MCC код
-                mcc_match = re.search(r'MCC\s*(\d{4})', desc, re.IGNORECASE)
-                mcc_code = mcc_match.group(1) if mcc_match else None
-                desc = re.sub(r'MCC\s*\d{4}', '', desc, flags=re.IGNORECASE).strip()
-                
-                if not desc:
-                    desc = "Описание отсутствует"
-                    
-                category = PDFParser._determine_category(desc, mcc_code, abs_amount, tx_type)
-                
-                results.append(ParsedTransactionDTO(
-                    amount=abs_amount,
-                    currency="RUB",
-                    transaction_type=tx_type,
-                    category=category,
-                    mcc_code=mcc_code,
-                    description=desc[:150], # Обрезка под лимит БД
-                    transaction_date=tx_date
-                ))
-            except Exception:
+            if is_sber:
+                selected = amounts[0]  # Вторая сумма — остаток, не сумма операции.
+                raw = selected.group().strip()
+                tx_type = "income" if raw.startswith("+") else "expense"
+            else:
+                currency_amounts = list(re.finditer(rf"({MONEY})\s*(RUR|RUB|₽|USD|EUR)(?:\b|(?=\s|$))", body, re.I))
+                if not currency_amounts:
+                    raise ValueError("Не удалось распознать денежные колонки PDF. Загрузите CSV")
+                selected = currency_amounts[-1]
+                if selected.group(2).upper() not in {"RUB", "RUR", "₽"}:
+                    raise ValueError("PDF содержит операции в другой валюте. Загрузите рублевую выписку")
+                raw = selected.group(1).strip()
+                if not raw.startswith(("+", "-", "−")):
+                    raise ValueError("В PDF не определено направление операции. Загрузите CSV с приходом и расходом")
+                tx_type = "expense" if raw.startswith(("-", "−")) else "income"
+            amount = abs(Decimal(re.sub(r"\s", "", raw).replace("−", "-").replace(",", ".")))
+            if not amount:
                 continue
-                
+            if amount >= Decimal("10000000000"):
+                raise ValueError("Слишком большая сумма операции")
+            desc = body
+            for match in reversed(amounts):
+                desc = desc[:match.start()] + desc[match.end():]
+            desc = re.sub(rf"\b{DATE}\b|\b(?:RUB|RUR)\b", "", desc).strip()
+            mcc_match = re.search(r"MCC\s*[: ]?\s*(\d{4})", desc, re.I)
+            mcc = mcc_match.group(1) if mcc_match else None
+            dt = datetime.strptime(date_match.group(1), "%d.%m.%Y")
+            if date_match.group(2):
+                time_parts = [int(part) for part in date_match.group(2).split(":")]
+                dt = dt.replace(hour=time_parts[0], minute=time_parts[1], second=time_parts[2] if len(time_parts) > 2 else 0)
+            results.append(ParsedTransactionDTO(amount=amount, currency="RUB", transaction_type=tx_type,
+                category=CSVParser._determine_category(desc, mcc or "", tx_type, ""),
+                mcc_code=mcc, description=desc or "Операция по карте", transaction_date=dt))
         return results

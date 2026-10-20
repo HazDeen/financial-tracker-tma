@@ -9,12 +9,14 @@ import {
   MoreVertical, Edit3, Trash2, PauseCircle, PlayCircle, ArrowDownRight, ArrowUpRight
 } from 'lucide-react';
 
-import { FinanceService, getTelegramUserId } from './api/client';
+import { FinanceService, getCurrentUserId, errorMessage } from './api/client';
+import { useAuth } from './context/AuthContext';
+import { StatementImport } from './components/StatementImport';
 import { useTelegram } from './context/TelegramContext';
 import type { 
   MonthlyReportResponse, AIAdvisorResponse, SalarySummaryResponse, 
   RecurringResponse, CreditDebtResponse, GoalProgressBarWidget, 
-  CategoryLimitWidget, ActionModalType, SavingsGoalResponse 
+  CategoryLimitWidget, ActionModalType, SavingsGoalResponse, TransactionDTO
 } from './types';
 
 /* ============================================================================
@@ -804,17 +806,20 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'success'>('idle');
+
 
   const [formData, setFormData] = useState({
     title: '', amount: '', target_amount: '', monthly_contribution: '',
     date: new Date().toISOString().split('T')[0], hours: '8', rate: '1500',
-    interest: '18', billing_day: '15', type: 'expense' as 'expense' | 'income'
+    description: '', interest: '18', billing_day: '15', type: 'expense' as 'expense' | 'income'
   });
 
   useEffect(() => {
     if (editData && isOpen) {
-      if (editData.type === 'shift') {
+      if (editData.type === 'transaction') {
+        setSelectedType('transaction');
+        setFormData(prev => ({ ...prev, title: editData.item.category, amount: str(editData.item.amount), type: editData.item.transaction_type, description: editData.item.description || '', date: editData.item.transaction_date.slice(0, 10) }));
+      } else if (editData.type === 'shift') {
         setSelectedType('shift');
         setFormData(prev => ({ ...prev, date: editData.item.shift_date, hours: str(editData.item.hours_worked), rate: str(editData.item.hourly_rate) }));
       } else if (editData.type === 'recurring') {
@@ -830,7 +835,7 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
     } else if (!isOpen) {
       setSelectedType(null);
       setError(null);
-      setUploadState('idle'); 
+
     }
   }, [editData, isOpen]);
 
@@ -842,7 +847,7 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); haptic.medium(); setLoading(true); setError(null);
-    const userId = getTelegramUserId();
+    const userId = getCurrentUserId();
 
     try {
       // ФИКС БАГА: Имитация PUT-запроса (удаляем старую запись перед созданием новой)
@@ -863,16 +868,18 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
       } else if (selectedType === 'debt') {
         await FinanceService.createDebt({ title: formData.title, total_amount: Number(formData.amount), current_balance: Number(formData.amount), interest_rate: formData.interest ? Number(formData.interest) : null }, userId);
       } else if (selectedType === 'transaction') {
-        await FinanceService.createTransaction({
+        const save = editData?.type === 'transaction' ? (payload: unknown) => FinanceService.updateTransaction(editData.item.id, payload) : (payload: unknown) => FinanceService.createTransaction(payload, userId);
+        await save({
           amount: Number(formData.amount),
           transaction_type: formData.type,
-          category: formData.title,
+          category: formData.title.trim(),
+          description: formData.description || 'Ручной ввод',
           transaction_date: new Date(formData.date).toISOString()
-        }, userId);
+        });
       }
       haptic.success(); onActionSuccess(); setSelectedType(null); onClose();
     } catch (err: any) {
-      haptic.error(); setError(err?.response?.data?.detail || 'Ошибка сохранения. Проверьте данные.');
+      haptic.error(); setError(errorMessage(err) || 'Ошибка сохранения. Проверьте данные.');
     } finally { setLoading(false); }
   };
 
@@ -885,7 +892,7 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
         <div className="flex justify-between items-center mb-6 relative z-10">
           <div className="flex items-center gap-2.5">
             {selectedType && !editData && (
-              <button onClick={() => setSelectedType(null)} className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white/80 transition-colors">
+              <button aria-label="Назад" onClick={() => setSelectedType(null)} className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white/80 transition-colors">
                 <ArrowLeft size={18} />
               </button>
             )}
@@ -893,12 +900,13 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
               <Sparkles className="text-purple-400 w-5 h-5 animate-pulse" />
               {editData ? 'Редактирование записи' : !selectedType ? 'Создать запись' : 
                 selectedType === 'statement' ? 'Импорт выписки' :
+                selectedType === 'transaction' ? 'Доход или расход' :
                 selectedType === 'shift' ? 'Рабочая смена' :
                 selectedType === 'recurring' ? 'Новое списание (Подписка)' :
                 selectedType === 'debt' ? 'Кредит / Долг' : 'Регулярное пополнение'}
             </h3>
           </div>
-          <button onClick={() => { setSelectedType(null); onClose(); }} className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors">
+          <button aria-label="Закрыть" onClick={() => { setSelectedType(null); onClose(); }} className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -957,7 +965,7 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
               <>
                 <div><label className="text-xs text-white/60 block mb-1">Название</label><input type="text" required placeholder={selectedType === 'recurring' ? 'Netflix, Аренда' : selectedType === 'savings' ? 'Пополнение брокерского счета, Копилка' : 'Ипотека, Кредитная карта'} value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-400" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-white/60 block mb-1">Сумма (₽)</label><input type="number" required placeholder="0" font-mono="true" value={formData.amount || formData.monthly_contribution} onChange={e => setFormData({...formData, amount: e.target.value, monthly_contribution: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-purple-400" /></div>
+                  <div><label htmlFor="tx-amount" className="text-xs text-white/60 block mb-1">Сумма (₽)</label><input id="tx-amount" type="number" min="0.01" step="0.01" required placeholder="0" font-mono="true" value={formData.amount || formData.monthly_contribution} onChange={e => setFormData({...formData, amount: e.target.value, monthly_contribution: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-purple-400" /></div>
                   {(selectedType === 'recurring' || selectedType === 'savings') ? (
                     <div><label className="text-xs text-white/60 block mb-1">День выполнения</label><input type="number" min="1" max="31" required value={formData.billing_day} onChange={e => setFormData({...formData, billing_day: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none" /></div>
                   ) : (
@@ -974,69 +982,18 @@ const GlassActionModal: React.FC<ModalProps> = ({ isOpen, onClose, onActionSucce
                   <button type="button" onClick={() => setFormData({...formData, type: 'income'})} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${formData.type === 'income' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'text-white/50 hover:text-white'}`}>Доход (+)</button>
                 </div>
                 <div>
-                  <label className="text-xs text-white/60 block mb-1">Категория</label>
-                  <input type="text" required placeholder="Продукты, Переводы, Зарплата..." onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-400" />
+                  <label htmlFor="tx-category" className="text-xs text-white/60 block mb-1">Категория</label>
+                  <input id="tx-category" type="text" required placeholder="Продукты, Переводы, Зарплата..." maxLength={64} value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-400" />
                 </div>
+                <div><label htmlFor="tx-description" className="text-xs text-white/60 block mb-1">Комментарий (необязательно)</label><input id="tx-description" value={formData.description} maxLength={2000} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-white/60 block mb-1">Сумма (₽)</label><input type="number" required placeholder="0" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-amber-400" /></div>
-                  <div><label className="text-xs text-white/60 block mb-1">Дата</label><input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none" /></div>
+                  <div><label htmlFor="tx-amount" className="text-xs text-white/60 block mb-1">Сумма (₽)</label><input id="tx-amount" type="number" min="0.01" step="0.01" required placeholder="0" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-amber-400" /></div>
+                  <div><label htmlFor="tx-date" className="text-xs text-white/60 block mb-1">Дата</label><input id="tx-date" type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-black/40 border border-white/15 rounded-2xl px-4 py-3 text-sm text-white font-mono focus:outline-none" /></div>
                 </div>
               </>
             )}
 
-            {selectedType === 'statement' && (
-              <label 
-                className={`border-2 border-dashed border-emerald-500/30 rounded-3xl p-8 flex flex-col items-center justify-center gap-4 transition-colors bg-emerald-500/5 ${uploadState === 'idle' ? 'cursor-pointer hover:border-emerald-400 group' : ''}`}
-              >
-                {uploadState === 'idle' && (
-                  <>
-                    <FileUp size={36} className="text-emerald-400 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-emerald-200 text-center font-medium">
-                      Выберите файл банковского отчета (.csv или .pdf)
-                    </span>
-                    <input type="file" className="hidden" accept=".csv,.pdf" onChange={async (e) => {
-                      if (e.target.files?.[0]) {
-                        setUploadState('loading');
-                        try {
-                          await FinanceService.uploadStatement(e.target.files[0], getTelegramUserId());
-                          haptic.success();
-                          setUploadState('success');
-                          onActionSuccess();
-                          
-                          setTimeout(() => {
-                            onClose();
-                            setUploadState('idle'); 
-                          }, 1500);
-                        } catch (err) {
-                          setError('Ошибка обработки файла');
-                          setUploadState('idle');
-                        }
-                      }
-                    }} />
-                  </>
-                )}
-
-                {uploadState === 'loading' && (
-                  <div className="flex flex-col items-center gap-3 animate-in fade-in zoom-in duration-300">
-                    <RefreshCw size={36} className="text-emerald-400 animate-spin" />
-                    <span className="text-xs text-emerald-200 text-center font-medium animate-pulse">
-                      Анализ и импорт транзакций...
-                    </span>
-                  </div>
-                )}
-
-                {uploadState === 'success' && (
-                  <div className="flex flex-col items-center gap-3 animate-in fade-in zoom-in duration-300">
-                    <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
-                      <CheckCircle2 size={32} className="text-emerald-400" />
-                    </div>
-                    <span className="text-sm text-emerald-300 text-center font-bold">
-                      Успешно импортировано!
-                    </span>
-                  </div>
-                )}
-              </label>
-            )}
+            {selectedType === 'statement' && <StatementImport onSuccess={onActionSuccess} />}
 
             {selectedType !== 'statement' && (
               <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold py-4 rounded-2xl shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(99,102,241,0.6)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-6">
@@ -1133,19 +1090,19 @@ const GlassNav = ({ activeTab, onSelectTab, onOpenUpload }: { activeTab: string;
       <div className="bg-white/[0.06] backdrop-blur-2xl px-2 py-2 rounded-[2.5rem] border border-white/15 flex items-center justify-between w-full max-w-[400px] relative pointer-events-auto shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
         
         <div className="flex items-center justify-around w-[40%]">
-          <button onClick={() => handleTabClick('dashboard')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Wallet size={18} />{activeTab === 'dashboard' && <span className="text-xs">Обзор</span>}</button>
-          <button onClick={() => handleTabClick('shifts')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'shifts' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Clock size={18} />{activeTab === 'shifts' && <span className="text-xs">Смены</span>}</button>
+          <button aria-label="Обзор" onClick={() => handleTabClick('dashboard')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Wallet size={18} />{activeTab === 'dashboard' && <span className="text-xs">Обзор</span>}</button>
+          <button aria-label="Смены" onClick={() => handleTabClick('shifts')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'shifts' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Clock size={18} />{activeTab === 'shifts' && <span className="text-xs">Смены</span>}</button>
         </div>
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
-          <button onClick={() => { haptic.medium(); onOpenUpload(); }} className="w-[52px] h-[52px] rounded-full bg-gradient-to-tr from-emerald-400 via-teal-400 to-blue-500 flex items-center justify-center shadow-[0_0_25px_rgba(52,211,153,0.5)] transform transition hover:scale-110 active:scale-95 shrink-0">
+          <button aria-label="Добавить операцию" onClick={() => { haptic.medium(); onOpenUpload(); }} className="w-[52px] h-[52px] rounded-full bg-gradient-to-tr from-emerald-400 via-teal-400 to-blue-500 flex items-center justify-center shadow-[0_0_25px_rgba(52,211,153,0.5)] transform transition hover:scale-110 active:scale-95 shrink-0">
             <Plus size={28} className="text-black stroke-[3]" />
           </button>
         </div>
 
         <div className="flex items-center justify-around w-[40%]">
-          <button onClick={() => handleTabClick('obligations')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'obligations' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><CreditCard size={18} />{activeTab === 'obligations' && <span className="text-xs">Планы</span>}</button>
-          <button onClick={() => handleTabClick('ai')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'ai' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Sparkles size={18} />{activeTab === 'ai' && <span className="text-xs">AI</span>}</button>
+          <button aria-label="Планы" onClick={() => handleTabClick('obligations')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'obligations' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><CreditCard size={18} />{activeTab === 'obligations' && <span className="text-xs">Планы</span>}</button>
+          <button aria-label="Аналитик" onClick={() => handleTabClick('ai')} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-full transition-all duration-300 ${activeTab === 'ai' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold' : 'text-white/60 hover:bg-white/10'}`}><Sparkles size={18} />{activeTab === 'ai' && <span className="text-xs">AI</span>}</button>
         </div>
 
       </div>
@@ -1156,7 +1113,7 @@ const GlassNav = ({ activeTab, onSelectTab, onOpenUpload }: { activeTab: string;
 /* ============================================================================
    6.5 ПОЛНОЭКРАННАЯ СВОДКА ВСЕХ КАТЕГОРИЙ И ТРАНЗАКЦИЙ
 ============================================================================ */
-const GlassAllTransactionsModal = ({ isOpen, onClose, report }: { isOpen: boolean; onClose: () => void; report: MonthlyReportResponse | null }) => {
+const GlassAllTransactionsModal = ({ isOpen, onClose, report, onEdit, onDelete }: { isOpen: boolean; onClose: () => void; report: MonthlyReportResponse | null; onEdit: (tx: TransactionDTO) => void; onDelete: (id: number) => Promise<void> }) => {
   const { haptic } = useTelegram();
   const [tab, setTab] = useState<'expenses' | 'income'>('expenses');
 
@@ -1200,7 +1157,7 @@ const GlassAllTransactionsModal = ({ isOpen, onClose, report }: { isOpen: boolea
           </h3>
           <div className="space-y-3">
             {report.transactions && report.transactions.length > 0 ? (
-              report.transactions.map((tx) => {
+              report.transactions.filter(tx => tx.transaction_type === (tab === 'expenses' ? 'expense' : 'income')).map((tx) => {
                 const isIncome = tx.transaction_type === 'income';
                 return (
                   <div key={tx.id} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
@@ -1213,6 +1170,8 @@ const GlassAllTransactionsModal = ({ isOpen, onClose, report }: { isOpen: boolea
                     <span className={`text-sm font-bold font-mono whitespace-nowrap ${isIncome ? 'text-emerald-400' : 'text-white'}`}>
                       {isIncome ? '+' : '-'}{Number(tx.amount).toLocaleString()} ₽
                     </span>
+                    <button type="button" aria-label={`Изменить операцию ${tx.category}`} className="p-2 ml-2 text-blue-300" onClick={() => { onClose(); onEdit(tx); }}><Edit3 size={16} /></button>
+                    <button type="button" aria-label={`Удалить операцию ${tx.category}`} className="p-2 text-rose-300" onClick={() => void onDelete(tx.id)}><Trash2 size={16} /></button>
                   </div>
                 );
               })
@@ -1244,7 +1203,7 @@ export default function App() {
   // Стейты для Splash Screen
   const [isSplashVisible, setIsSplashVisible] = useState(true);
   const [isSplashFading, setIsSplashFading] = useState(false);
-  const isInitialMount = useRef(true);
+
 
   const [report, setReport] = useState<MonthlyReportResponse | null>(null);
   const [aiData, setAiData] = useState<AIAdvisorResponse | null>(null);
@@ -1253,11 +1212,13 @@ export default function App() {
   const [debts, setDebts] = useState<CreditDebtResponse[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoalResponse[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const { webApp, user, haptic } = useTelegram();
+  const { account, logout } = useAuth();
+  const [loadError, setLoadError] = useState('');
 
   const fetchAllData = useCallback(async (targetYear: number, targetMonth: number) => {
     setIsLoading(true);
-    const userId = getTelegramUserId();
+    setLoadError('');
+    const userId = getCurrentUserId();
     try {
       const [repData, salData, recData, debtsData] = await Promise.all([
         FinanceService.getMonthlyReport(targetYear, targetMonth, userId),
@@ -1272,52 +1233,22 @@ export default function App() {
       setDebts(debtsData);
       setSavingsGoals([]);
 
-      FinanceService.getAIAdvice(targetYear, targetMonth, userId)
-        .then(setAiData)
-        .catch(() => setAiData(null));
     } catch (e) { 
-      console.error('Ошибка загрузки:', e); 
+      setLoadError(errorMessage(e));
     } finally { 
       setIsLoading(false); 
     }
   }, []);
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    void fetchAllData(year, month).finally(() => { setIsSplashFading(true); setIsSplashVisible(false); });
+  }, [year, month, fetchAllData]);
       
-      // 1. Параллельно грузим данные и запускаем минимальный таймер для экрана загрузки (чтобы он не пропадал мгновенно)
-      Promise.all([
-        fetchAllData(year, month),
-        new Promise(resolve => setTimeout(resolve, 1800)) // Держим Splash Screen минимум 1.8 секунды
-      ]).then(() => {
-        setIsSplashFading(true);
-        setTimeout(() => setIsSplashVisible(false), 700); // 700ms на CSS-анимацию fade-out
-      });
-
-      // 2. Синхронизируем пользователя при первом старте
-      if (user) {
-        FinanceService.syncUser(user)
-          .then((data) => {
-            if (data.is_new && webApp) {
-              // Ждем, пока исчезнет сплэш-скрин, чтобы показать системный pop-up
-              setTimeout(() => {
-                haptic.success();
-                webApp.showPopup({
-                  title: 'Добро пожаловать! 🎉',
-                  message: `Привет, ${data.first_name}! \nВы стали ${data.total_users}-м пользователем нашего умного трекера. Давайте наведем порядок в финансах!`,
-                  buttons: [{ type: 'default', text: 'Погнали!' }]
-                });
-              }, 2500); 
-            }
-          })
-          .catch(console.error);
-      }
-    } else {
-      // Обычная загрузка данных (например, при перелистывании месяца)
-      fetchAllData(year, month);
+  useEffect(() => {
+    if (activeTab === 'ai') {
+      FinanceService.getAIAdvice(year, month).then(setAiData).catch(() => setAiData(null));
     }
-  }, [year, month, fetchAllData, user, webApp, haptic]);
+  }, [activeTab, year, month]);
 
   const handleEdit = (type: string, item: any) => {
     setEditingData({ type, item });
@@ -1325,7 +1256,7 @@ export default function App() {
   };
 
   const handleDelete = async (type: string, id: number) => {
-    const userId = getTelegramUserId();
+    const userId = getCurrentUserId();
     if (type === 'shift') {
       setSalary(prev => prev ? { ...prev, shifts: prev.shifts.filter(s => s.id !== id) } : null);
       try { await FinanceService.deleteShift(id, userId); } catch (e) { fetchAllData(year, month); }
@@ -1343,7 +1274,7 @@ export default function App() {
 
   const handleToggleRecurring = async (id: number) => {
     setRecurring(prev => prev.map(r => r.id === id ? { ...r, is_active: !r.is_active } : r));
-    try { await FinanceService.toggleRecurring(id, getTelegramUserId()); } catch (e) { fetchAllData(year, month); }
+    try { await FinanceService.toggleRecurring(id, getCurrentUserId()); } catch (e) { fetchAllData(year, month); }
   };
 
   const handleMarkShiftPaid = async (id: number) => {
@@ -1358,12 +1289,12 @@ export default function App() {
       unpaid_balance: Number(salary.unpaid_balance) - earned
     });
     if (report) setReport({ ...report, total_income: Number(report.total_income) + earned, net_profit: Number(report.net_profit) + earned });
-    try { await FinanceService.markShiftPaid(id, getTelegramUserId()); } catch (e) { fetchAllData(year, month); }
+    try { await FinanceService.markShiftPaid(id, getCurrentUserId()); } catch (e) { fetchAllData(year, month); }
   };
 
   const handlePayDebt = async (id: number, amount: number) => {
     setDebts(prev => prev.map(d => d.id === id ? { ...d, current_balance: Number(d.current_balance) - amount, is_closed: (Number(d.current_balance) - amount) <= 0 } : d));
-    try { await FinanceService.payDebt(id, amount, getTelegramUserId()); } catch (e) { fetchAllData(year, month); }
+    try { await FinanceService.payDebt(id, amount, getCurrentUserId()); } catch (e) { fetchAllData(year, month); }
   };
 
   return (
@@ -1372,18 +1303,20 @@ export default function App() {
       {/* РЕНДЕР ЭКРАНА ЗАГРУЗКИ ПОВЕРХ ВСЕГО */}
       {isSplashVisible && <SplashScreen isFadingOut={isSplashFading} />}
 
-      <div className="w-full pt-[47px] shrink-0 bg-transparent flex justify-center pb-1 z-50">
-        <div className="w-1/3 h-1 bg-white/20 rounded-full mt-1.5" />
+      <div className="web-account-bar">
+        <span><strong>Smart Finance</strong><span className="account-login">{account?.login}</span></span>
+        <button type="button" onClick={logout}>Выйти</button>
       </div>
 
-      <header className="shrink-0 pt-4 pb-3 px-4 z-40 bg-[#0A0D14]/80 backdrop-blur-xl border-b border-white/5 flex justify-between items-center">
+      <header className="web-toolbar shrink-0 pt-4 pb-3 px-4 z-40 bg-[#0A0D14]/80 backdrop-blur-xl border-b border-white/5 flex justify-between items-center">
         <MonthDropdown currentYear={year} currentMonth={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-        <button onClick={() => { setEditingData(null); setShowModal(true); }} className="w-10 h-10 rounded-2xl bg-white/[0.05] backdrop-blur-md flex items-center justify-center border border-white/10 shadow-lg hover:bg-white/10 active:scale-95 transition-all">
+        <button aria-label="Добавить операцию или выписку" onClick={() => { setEditingData(null); setShowModal(true); }} className="w-10 h-10 rounded-2xl bg-white/[0.05] backdrop-blur-md flex items-center justify-center border border-white/10 shadow-lg hover:bg-white/10 active:scale-95 transition-all">
           <Upload size={18} className="text-emerald-400" />
         </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 pb-[120px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <main className="web-main flex-1 overflow-y-auto p-4 pb-[120px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {loadError && <div role="alert" className="mb-4 p-4 rounded-xl bg-rose-500/10 text-rose-200">{loadError} <button onClick={() => fetchAllData(year, month)} className="underline">Повторить</button></div>}
         {activeTab === 'dashboard' && <GlassDashboard report={report} onShowAll={() => setShowAllModal(true)} />}
         
         {activeTab === 'shifts' && (
@@ -1406,7 +1339,10 @@ export default function App() {
       </main>
 
       <GlassNav activeTab={activeTab} onSelectTab={setActiveTab} onOpenUpload={() => { setEditingData(null); setShowModal(true); }} />
-      <GlassAllTransactionsModal isOpen={showAllModal} onClose={() => setShowAllModal(false)} report={report} />
+      <GlassAllTransactionsModal isOpen={showAllModal} onClose={() => setShowAllModal(false)} report={report} onEdit={tx => handleEdit('transaction', tx)} onDelete={async id => {
+        try { await FinanceService.deleteTransaction(id); await fetchAllData(year, month); }
+        catch (err) { setLoadError(errorMessage(err)); }
+      }} />
       <GlassActionModal isOpen={showModal} onClose={() => { setShowModal(false); setEditingData(null); }} onActionSuccess={() => fetchAllData(year, month)} editData={editingData} />
       <GlassPaymentModal 
         isOpen={!!paymentDebt} 

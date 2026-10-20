@@ -11,6 +11,7 @@ class ParsedTransactionDTO(BaseModel):
     category: str = Field(default="Разное")
     mcc_code: Optional[str] = Field(default=None, max_length=4)
     description: Optional[str] = None
+    source_id: str = ""
     transaction_date: datetime
 
 class StatementUploadResponse(BaseModel):

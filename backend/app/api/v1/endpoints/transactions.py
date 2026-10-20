@@ -1,41 +1,37 @@
+from app.core.auth import get_current_user_id
 # backend/app/api/v1/endpoints/transactions.py
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
+from datetime import datetime, timezone
+from uuid import uuid4
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.finance import Transaction, TransactionType
-from app.services.hash_service import generate_transaction_hash
 from app.schemas.analytics import TransactionDTO
 
 router = APIRouter()
 
 class TransactionCreate(BaseModel):
-    amount: Decimal = Field(..., gt=0)
-    transaction_type: str = Field(..., description="'income' или 'expense'")
-    category: str = Field(...)
+    amount: Decimal = Field(..., gt=0, max_digits=12, decimal_places=2)
+    transaction_type: TransactionType
+    category: str = Field(..., min_length=1, max_length=64, pattern=r".*\S.*")
     transaction_date: datetime = Field(...)
-    description: str = "Ручной ввод"
+    description: str = Field("Ручной ввод", max_length=2000)
 
 @router.post("/", response_model=TransactionDTO, status_code=status.HTTP_201_CREATED)
 async def create_manual_transaction(
     schema: TransactionCreate,
-    user_id: int = Query(1),
+    user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     tx_type = TransactionType(schema.transaction_type)
     
-    # Генерируем хэш, чтобы система не сломалась при совпадениях
-    tx_hash = generate_transaction_hash(
-        user_id=user_id,
-        dt=schema.transaction_date,
-        amount=schema.amount,
-        currency="RUB",
-        mcc_or_desc=schema.category + schema.description + str(datetime.now().timestamp()) # Соль для уникальности
-    )
-    
+    tx_hash = uuid4().hex
+    if schema.transaction_date.tzinfo is None:
+        schema.transaction_date = schema.transaction_date.replace(tzinfo=timezone.utc)
+
     new_tx = Transaction(
         user_id=user_id,
         amount=schema.amount,
@@ -60,3 +56,29 @@ async def create_manual_transaction(
         description=new_tx.description,
         transaction_date=new_tx.transaction_date
     )
+
+@router.delete("/{transaction_id}", status_code=204)
+async def delete_transaction(transaction_id: int, user_id: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    tx = (await db.execute(select(Transaction).where(Transaction.id == transaction_id, Transaction.user_id == user_id))).scalar_one_or_none()
+    if tx is None:
+        raise HTTPException(404, "Операция не найдена")
+    await db.delete(tx)
+    await db.commit()
+
+
+@router.put("/{transaction_id}", response_model=TransactionDTO)
+async def update_transaction(transaction_id: int, schema: TransactionCreate, user_id: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    tx = (await db.execute(select(Transaction).where(Transaction.id == transaction_id, Transaction.user_id == user_id))).scalar_one_or_none()
+    if tx is None:
+        raise HTTPException(404, "Операция не найдена")
+    if schema.transaction_date.tzinfo is None:
+        schema.transaction_date = schema.transaction_date.replace(tzinfo=timezone.utc)
+    for field, value in schema.model_dump().items():
+        setattr(tx, field, value)
+    await db.commit()
+    await db.refresh(tx)
+    return TransactionDTO.model_validate(tx)

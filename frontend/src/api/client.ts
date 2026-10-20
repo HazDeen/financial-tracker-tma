@@ -1,6 +1,6 @@
 // frontend/src/api/client.ts
 import axios from 'axios';
-import WebApp from '@twa-dev/sdk';
+
 
 import type { 
   MonthlyReportResponse, 
@@ -11,40 +11,54 @@ import type {
   CreditDebtResponse 
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-export const getTelegramUserId = (): number => {
-  // 1. Пробуем достать ID из глобального окна напрямую (самый надежный способ в TMA)
-  const tg = (window as any)?.Telegram?.WebApp;
-  if (tg?.initDataUnsafe?.user?.id) {
-    return tg.initDataUnsafe.user.id;
-  }
-  
-  // 2. Пробуем через импортированный SDK
-  if (typeof window !== 'undefined' && WebApp?.initDataUnsafe?.user?.id) {
-    return WebApp.initDataUnsafe.user.id;
-  }
-  
-  // 3. Фолбэк для тестов в обычном браузере
-  console.warn("Telegram WebApp не обнаружен, используется ID 1");
-  return 1;
+export interface Account { id: number; login: string }
+let currentAccount: Account | null = null;
+export const setCurrentAccount = (account: Account | null) => { currentAccount = account; };
+export const getCurrentUserId = (): number => currentAccount?.id ?? 0;
+export const AuthService = {
+  me: async (): Promise<Account> => (await api.get('/auth/me')).data,
+  login: async (login: string, password: string): Promise<Account> => (await api.post('/auth/login', { login, password })).data,
+  register: async (login: string, password: string): Promise<Account> => (await api.post('/auth/register', { login, password })).data,
+  logout: async () => { await api.post('/auth/logout'); },
 };
-
+export const errorMessage = (error: unknown, fallback = 'Не удалось выполнить запрос') => {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return 'Проверьте заполнение полей: логин от 3 символов, пароль от 8 символов, сумма больше нуля.';
+    if (!error.response) return 'Нет связи с сервером. Проверьте подключение и повторите попытку.';
+  }
+  return fallback;
+};
 api.interceptors.request.use((config) => {
-  const userId = getTelegramUserId();
-  if (!config.params) config.params = {};
-  if (!config.params.user_id) config.params.user_id = userId;
+  // Пользователя определяет только серверная сессия.
+  if (config.params) delete config.params.user_id;
   return config;
+});
+api.interceptors.response.use(response => response, error => {
+  if (error.response?.status === 401 && !error.config?.url?.startsWith('/auth/')) {
+    window.dispatchEvent(new Event('session-expired'));
+  }
+  return Promise.reject(error);
 });
 
 export const FinanceService = {
+  previewStatement: async (file: File) => {
+    const body = new FormData(); body.append('file', file);
+    return (await api.post('/statements/preview', body, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
+  },
+  updateTransaction: async (id: number, payload: unknown) => (await api.put(`/transactions/${id}`, payload)).data,
+  deleteTransaction: async (id: number) => { await api.delete(`/transactions/${id}`); },
   getMonthlyReport: async (year: number, month: number, userId?: number): Promise<MonthlyReportResponse> => {
     const { data } = await api.get('/analytics/monthly', { params: { year, month, user_id: userId } });
     return data;
@@ -71,8 +85,8 @@ export const FinanceService = {
   uploadStatement: async (file: File, userId?: number) => {
     const formData = new FormData();
     formData.append('file', file);
-    const targetId = userId || getTelegramUserId();
-    const { data } = await api.post(`/statements/upload?user_id=${targetId}`, formData, {
+    void userId;
+    const { data } = await api.post(`/statements/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return data;
@@ -125,13 +139,6 @@ export const FinanceService = {
     const { data } = await api.patch(`/recurring/${id}/toggle`, null, { params: { user_id: userId } });
     return data;
   },
-  syncUser: async (userData: any) => {
-    const { data } = await api.post('/users/sync', {
-      id: userData.id,
-      username: userData.username,
-      first_name: userData.first_name
-    });
-    return data;
-  },
+
 };
 

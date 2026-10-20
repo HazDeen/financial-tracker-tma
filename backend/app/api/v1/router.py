@@ -1,6 +1,6 @@
 # backend/app/api/v1/router.py
 from fastapi import APIRouter
-from app.api.v1.endpoints import statements, analytics, shifts, debts, recurring, ai_advisor, actions, transactions, users
+from app.api.v1.endpoints import statements, analytics, shifts, debts, recurring, ai_advisor, actions, transactions, auth
 
 api_router = APIRouter()
 
@@ -12,4 +12,4 @@ api_router.include_router(recurring.router, prefix="/recurring", tags=["Recurrin
 api_router.include_router(ai_advisor.router, prefix="/ai-advisor", tags=["AI Advisor (Gemini)"])
 api_router.include_router(actions.router, prefix="/actions", tags=["actions"])
 api_router.include_router(transactions.router, prefix="/transactions", tags=["Manual Transactions"])
-api_router.include_router(users.router, prefix="/users", tags=["Users & Authentication"])
+api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
