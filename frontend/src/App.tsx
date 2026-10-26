@@ -1,3 +1,4 @@
+import { FinanceTools } from "./components/FinanceTools";
 import { BrandMark } from "./components/BrandMark";
 import { AndroidDownload } from "./components/AndroidDownload";
 import { RecoverySettings } from "./components/RecoverySettings";
@@ -8,6 +9,7 @@ import {
   ArrowUpRight,
   ArrowRight,
   CalendarDays,
+  Calculator,
   ChartNoAxesCombined,
   Check,
   ChevronLeft,
@@ -43,7 +45,7 @@ import type {
   TransactionDTO,
 } from "./types";
 
-type Tab = "home" | "operations" | "schedule" | "profile";
+type Tab = "home" | "operations" | "schedule" | "tools" | "profile";
 type Kind = "income" | "expense";
 type Modal =
   | { type: "transaction"; item?: TransactionDTO; kind?: Kind }
@@ -74,12 +76,14 @@ const tabs = [
   { id: "home", label: "Главная", icon: LayoutDashboard },
   { id: "operations", label: "Операции", icon: ChartNoAxesCombined },
   { id: "schedule", label: "Расписание", icon: CalendarDays },
+  { id: "tools", label: "Расчёты", icon: Calculator },
   { id: "profile", label: "Профиль", icon: UserRound },
 ] as const;
 const titleByTab = {
   home: "Деньги под контролем",
   operations: "История операций",
   schedule: "Всё по расписанию",
+  tools: "Считаем на шаг вперёд",
   profile: "Ваш профиль",
 };
 function nextOccurrence(day: number) {
@@ -433,7 +437,7 @@ export default function App() {
           <div className="page-heading">
             <div>
               <p className="eyebrow">
-                {tab === "home"
+                {tab === "tools" ? "ВКЛАДЫ, НАЛОГИ И ИНВЕСТИЦИИ" : tab === "home"
                   ? "ВАШ ЛИЧНЫЙ ОБЗОР"
                   : tab === "operations"
                     ? "ДОХОДЫ И РАСХОДЫ"
@@ -446,7 +450,7 @@ export default function App() {
                 <span className="brand-dot">.</span>
               </h1>
               <p className="page-description">
-                {tab === "home"
+                {tab === "tools" ? "Проверьте доходность и сохраните отчёты компаний." : tab === "home"
                   ? "Сегодня понятно. Завтра спокойно."
                   : tab === "operations"
                     ? "Каждая запись на своём месте."
@@ -966,6 +970,7 @@ export default function App() {
               )}
             </>
           )}
+          {tab === "tools" && <FinanceTools />}
           {tab === "profile" && (
             <Profile
               balance={balance.opening_balance}

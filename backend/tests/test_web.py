@@ -110,6 +110,71 @@ class WebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.user_id = response.json()['id']
 
+    def test_company_reports_lifecycle_and_account_isolation(self):
+        path = '/api/v1/company-reports'
+        data = {'company': 'Тестовая компания', 'period': '2025, год',
+                'metrics': '{"marketCap": "1000", "netIncome": "100"}'}
+        content = b'%PDF-1.7\nexample report'
+        response = self.client.post(path, data=data, files={'file': ('отчёт.pdf', content, 'application/pdf')})
+        self.assertEqual(response.status_code, 201, response.text)
+        report = response.json()
+        self.assertEqual(report['metrics']['marketCap'], '1000')
+        self.assertEqual(report['size'], len(content))
+        self.assertNotIn('content', report)
+        self.assertNotIn('user_id', report)
+        report_id = report['id']
+        self.assertEqual(self.client.get(path).json()[0]['id'], report_id)
+        downloaded = self.client.get(f'{path}/{report_id}/file')
+        self.assertEqual(downloaded.content, content)
+        self.assertIn('attachment;', downloaded.headers['content-disposition'])
+        self.assertEqual(downloaded.headers['x-content-type-options'], 'nosniff')
+        self.client.post('/api/v1/auth/register', json={'login': 'report_other_account', 'password': 'Other-password-123'})
+        self.assertEqual(self.client.get(path).json(), [])
+        self.assertEqual(self.client.get(f'{path}/{report_id}/file').status_code, 404)
+        self.assertEqual(self.client.delete(f'{path}/{report_id}').status_code, 404)
+        self.client.post('/api/v1/auth/login', json=self.account)
+        self.assertEqual(self.client.delete(f'{path}/{report_id}').status_code, 204)
+        self.assertEqual(self.client.get(path).json(), [])
+        self.assertEqual(self.client.get(f'{path}/{report_id}/file').status_code, 404)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.post(path, data=data, files={'file': ('x.pdf', content)}).status_code, 401)
+
+    def test_company_reports_validate_upload_and_figures(self):
+        import io
+        import zipfile
+        from unittest.mock import patch
+        path = '/api/v1/company-reports'
+        data = {'company': 'Компания', 'period': '2025'}
+        cases = [
+            ('a.exe', b'hello', {}, 422), ('a.pdf', b'not pdf', {}, 422),
+            ('a.csv', b'', {}, 422), ('a.csv', b'a\x00b', {}, 422),
+            ('a.xlsx', b'PK invalid', {}, 422),
+            ('a.csv', b'name,value\nprofit,10', {'company': ' '}, 422),
+            ('a.csv', b'name,value\nprofit,10', {'metrics': '{"cash":-1}'}, 422),
+            ('a.csv', b'name,value\nprofit,10', {'metrics': '{"cash":"NaN"}'}, 422),
+            ('a.csv', b'name,value\nprofit,10', {'metrics': '{"unknown":1}'}, 422),
+            ('a.csv', b'name,value\nprofit,10', {'metrics': '[]'}, 422),
+        ]
+        for name, content, extra, status in cases:
+            response = self.client.post(path, data={**data, **extra}, files={'file': (name, content)})
+            self.assertEqual(response.status_code, status, response.text)
+        with patch('app.api.v1.endpoints.company_reports.MAX_SIZE', 4):
+            response = self.client.post(path, data=data, files={'file': ('a.csv', b'12345')})
+            self.assertEqual(response.status_code, 413)
+        response = self.client.post(path, data=data, files={'file': ('../report.csv', b'name,value\nprofit,10')})
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()['filename'], 'report.csv')
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as workbook:
+            workbook.writestr('[Content_Types].xml', '<Types/>')
+            workbook.writestr('xl/workbook.xml', '<workbook/>')
+        response = self.client.post(path, data=data, files={'file': ('report.xlsx', archive.getvalue())})
+        self.assertEqual(response.status_code, 201, response.text)
+        for _ in range(18):
+            self.assertEqual(self.client.post(path, data=data, files={'file': ('a.csv', b'key,value')}).status_code, 201)
+        self.assertEqual(self.client.post(path, data=data, files={'file': ('a.csv', b'key,value')}).status_code, 409)
+
     def report(self, **params):
         return self.client.get('/api/v1/analytics/monthly', params={'year': 2026, 'month': 10, **params})
 

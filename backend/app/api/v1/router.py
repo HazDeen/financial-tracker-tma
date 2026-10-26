@@ -1,8 +1,11 @@
 # backend/app/api/v1/router.py
 from fastapi import APIRouter
 from app.api.v1.endpoints import statements, analytics, shifts, debts, recurring, ai_advisor, actions, transactions, auth
+from app.api.v1.endpoints import company_reports
 
 api_router = APIRouter()
+
+api_router.include_router(company_reports.router, prefix="/company-reports", tags=["Company Reports"])
 
 api_router.include_router(statements.router, prefix="/statements", tags=["Statements & Parsing"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics & Reports"])

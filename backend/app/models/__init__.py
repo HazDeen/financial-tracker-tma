@@ -10,3 +10,4 @@ __all__ = [
 ]
 from app.models.auth import WebAccount, WebSession, WebRecoveryCode
 from app.models.profile import FinanceProfile
+from app.models.company_report import CompanyReport
