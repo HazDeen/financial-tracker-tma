@@ -1,3 +1,4 @@
+import { AndroidDownload } from '../components/AndroidDownload';
 import { RecoveryCode } from '../components/RecoveryCode';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -92,5 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {recover && <button type="button" className="text-button" onClick={() => { setRecover(false); setError(''); setPassword(''); setConfirmation(''); setRecoveryCode(''); }}>Вернуться ко входу</button>}
       <p className="auth-note">Вход сохраняется на 30 дней на этом устройстве. На общем компьютере используйте кнопку «Выйти».</p>
     </section>
+    <div className="auth-download"><AndroidDownload /></div>
   </main>;
 }

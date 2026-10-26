@@ -1,3 +1,4 @@
+import { AndroidDownload } from "./components/AndroidDownload";
 import { RecoverySettings } from "./components/RecoverySettings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
@@ -1578,6 +1579,7 @@ function Profile({
           </form>
         </section>
         <RecoverySettings />
+        <AndroidDownload />
       </div>
     </div>
   );
