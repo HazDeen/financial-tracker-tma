@@ -1,3 +1,4 @@
+import { BrandMark } from "./BrandMark";
 export function LoadingScreen({
   message = "Готовим ваши финансы",
 }: {
@@ -6,7 +7,7 @@ export function LoadingScreen({
   return (
     <div className="loading-screen" role="status" aria-live="polite">
       <div className="loading-brand">
-        <span className="brand-symbol">₽</span>
+        <BrandMark />
       </div>
       <h1>
         Мои финансы<span className="brand-dot">.</span>

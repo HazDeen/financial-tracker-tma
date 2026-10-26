@@ -1,3 +1,4 @@
+import { BrandMark } from "../components/BrandMark";
 import { AndroidDownload } from '../components/AndroidDownload';
 import { RecoveryCode } from '../components/RecoveryCode';
 import { LoadingScreen } from '../components/LoadingScreen';
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   </AuthContext.Provider>;
   return <main className="auth-shell">
     <section className="auth-intro" aria-label="Мои финансы">
-      <div className="auth-brand"><span className="brand-symbol">₽</span> Мои финансы</div>
+      <div className="auth-brand"><BrandMark /> Мои финансы</div>
       <p className="auth-eyebrow">ЛИЧНЫЕ ФИНАНСЫ</p>
       <h1>Доходы и расходы.<br /><span>Всё под рукой.</span></h1>
       <p className="auth-description">Доходы, повседневные траты и обязательства — в одном месте. Добавляйте операции вручную или загружайте банковскую выписку.</p>

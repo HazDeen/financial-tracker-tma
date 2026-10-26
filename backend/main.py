@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Smart Finance", docs_url="/api/docs", redoc_url="/api/redoc", lifespan=lifespan)
+app = FastAPI(title="Smart Finance", docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json", lifespan=lifespan)
 app.include_router(api_router, prefix="/api")
 app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS,
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -56,18 +56,21 @@ async def protect_requests(request: Request, call_next):
         if not origin and request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Недопустимый источник запроса"}, status_code=403)
     response = await call_next(request)
-    if request.url.path.startswith("/api/"):
+    if request.url.path == "/api" or request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 
+@app.get("/api", tags=["System"])
+@app.head("/api", include_in_schema=False)
+@app.api_route("/api/", methods=["GET", "HEAD"], include_in_schema=False)
 @app.get("/api/health", tags=["System"])
 async def health_check():
     return {"status": "ok", "service": settings.PROJECT_NAME}
 
 
-@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@app.api_route("/api/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], include_in_schema=False)
 async def api_not_found(path: str):
     return JSONResponse({"detail": "API endpoint not found"}, status_code=404)
 

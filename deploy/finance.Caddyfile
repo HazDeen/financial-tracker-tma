@@ -1,0 +1,15 @@
+finance.hazdeen.xyz {
+    encode gzip zstd
+
+    # Match /api itself as well as every path below it. Preserve the /api prefix.
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8003
+    }
+
+    handle {
+        root * /var/www/smart-finance/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

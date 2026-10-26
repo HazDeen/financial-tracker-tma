@@ -96,14 +96,9 @@ button svg,
   width: 40px;
   height: 40px;
   flex-shrink: 0;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 13px;
-  color: white;
-  background: var(--blue);
-  font-size: 27px;
-  font-weight: 550;
-  letter-spacing: -1px;
+  display: block;
+  object-fit: contain;
+  border-radius: 26%;
 }
 .brand small {
   display: block;
@@ -2317,3 +2312,5 @@ h2 {
   .android-download-button { width: 100%; justify-content: center; }
   .android-download-qr { padding-top: 18px; border-top: 1px solid var(--line); }
 }
+
+.android-download-label .brand-symbol { width: 24px; height: 24px; border-radius: 26%; }

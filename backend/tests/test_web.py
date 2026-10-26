@@ -69,6 +69,28 @@ class ParserTests(unittest.TestCase):
             PDFParser.parse_text('Альфа-Банк\n01.10.2026 Магазин 250,00 RUR')
 
 
+class RoutingTests(unittest.TestCase):
+    def test_api_root_and_unknown_routes_never_return_frontend(self):
+        with TestClient(app) as client:
+            for path in ['/api', '/api/', '/api/health']:
+                response = client.get(path)
+                self.assertEqual(response.status_code, 200, path)
+                self.assertEqual(response.json()['status'], 'ok')
+                self.assertEqual(response.headers['cache-control'], 'no-store')
+            self.assertEqual(client.head('/api').status_code, 200)
+            for method in ['GET', 'HEAD', 'POST', 'PATCH', 'OPTIONS']:
+                response = client.request(method, '/api/not-an-endpoint')
+                self.assertEqual(response.status_code, 404, method)
+                self.assertIn('application/json', response.headers['content-type'])
+            schema = client.get('/api/openapi.json')
+            self.assertEqual(schema.status_code, 200)
+            self.assertIn('/api/v1/auth/login', schema.json()['paths'])
+            for path in ['/api/docs', '/api/redoc']:
+                response = client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('/api/openapi.json', response.text)
+
+
 class WebTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

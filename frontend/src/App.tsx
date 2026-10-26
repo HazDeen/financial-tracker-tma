@@ -1,3 +1,4 @@
+import { BrandMark } from "./components/BrandMark";
 import { AndroidDownload } from "./components/AndroidDownload";
 import { RecoverySettings } from "./components/RecoverySettings";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -343,7 +344,7 @@ export default function App() {
   if (!report && error)
     return (
       <div className="connection-state">
-        <span className="brand-symbol">₽</span>
+        <BrandMark />
         <h1>Не удалось загрузить данные</h1>
         <p>{error}</p>
         <button
@@ -366,7 +367,7 @@ export default function App() {
             setTab("home");
           }}
         >
-          <span className="brand-symbol">₽</span>
+          <BrandMark />
           <span>
             Мои финансы<span className="brand-dot">.</span>
             <small>Личное пространство</small>
@@ -415,7 +416,7 @@ export default function App() {
               setTab("home");
             }}
           >
-            <span className="brand-symbol">₽</span>
+            <BrandMark />
             <span>
               Мои финансы<span className="brand-dot">.</span>
             </span>

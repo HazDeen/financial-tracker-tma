@@ -1,32 +1,9 @@
-# React + TypeScript + Vite
+# Мои финансы — веб-интерфейс
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React, TypeScript и Vite. Из корня проекта `./start.sh` собирает интерфейс и запускает приложение на http://127.0.0.1:8000.
 
-Currently, two official plugins are available:
+Для разработки: `npm install`, затем `npm run dev` из этого каталога; API проксируется на `127.0.0.1:8000`. Production-сборка: `npm run build`. Проверка кода: `npm run lint`.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Единый логотип подключается компонентом `BrandMark` из `public/brand-mark.svg`. Значок вкладки, закладки iPhone и Android-иконки используют тот же оригинал `../branding/mark.json`; генерация — `python3 scripts/generate-branding.py` из корня проекта. Подробности: `../branding/README.md`.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Ссылка на APK и QR-код находятся в `AndroidDownload` и `public/android-download-qr.svg`. При смене версии их нужно обновлять вместе. APK хранится на production-сервере в `public/` и при веб-сборке копируется в `dist/`.

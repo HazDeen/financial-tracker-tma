@@ -28,12 +28,9 @@ public class MainActivity extends Activity {
         launch.setOrientation(android.widget.LinearLayout.VERTICAL);
         launch.setGravity(android.view.Gravity.CENTER);
         launch.setBackgroundColor(Color.rgb(245,248,255));
-        android.widget.TextView mark = new android.widget.TextView(this);
-        mark.setText("₽"); mark.setTextSize(47); mark.setTextColor(Color.WHITE);
-        mark.setGravity(android.view.Gravity.CENTER);
-        android.graphics.drawable.GradientDrawable tile = new android.graphics.drawable.GradientDrawable();
-        tile.setColor(Color.rgb(0,110,232)); tile.setCornerRadius(23 * getResources().getDisplayMetrics().density);
-        mark.setBackground(tile);
+        android.widget.ImageView mark = new android.widget.ImageView(this);
+        mark.setImageResource(R.drawable.ic_finance);
+        mark.setContentDescription("Мои финансы");
         int iconSize = (int)(72 * getResources().getDisplayMetrics().density);
         launch.addView(mark, new android.widget.LinearLayout.LayoutParams(iconSize, iconSize));
         android.widget.TextView title = new android.widget.TextView(this);
