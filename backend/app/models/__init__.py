@@ -8,4 +8,5 @@ __all__ = [
     "Base", "User", "Transaction", "RecurringPayment", 
     "CreditDebt", "TransactionType", "WorkShift"
 ]
-from app.models.auth import WebAccount, WebSession
+from app.models.auth import WebAccount, WebSession, WebRecoveryCode
+from app.models.profile import FinanceProfile

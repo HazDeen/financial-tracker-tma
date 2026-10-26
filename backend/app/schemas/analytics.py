@@ -2,7 +2,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 
 class CategorySummary(BaseModel):
     category: str = Field(..., description="Название категории")
@@ -36,3 +36,7 @@ class MonthlyReportResponse(BaseModel):
     income_by_category: List[CategorySummary] = Field(default_factory=list)
     expense_by_category: List[CategorySummary] = Field(default_factory=list)
     transactions: List[TransactionDTO] = Field(default_factory=list, description="История всех транзакций за месяц")
+
+class PeriodReportResponse(MonthlyReportResponse):
+    start_date: date
+    end_date: date

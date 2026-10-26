@@ -5,3 +5,6 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# Local previews and generated release packages
+/output/

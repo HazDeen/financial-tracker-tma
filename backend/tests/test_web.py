@@ -215,6 +215,167 @@ class WebTests(unittest.TestCase):
         auth_attempts['testclient'].extend([monotonic()] * 30)
         self.assertEqual(self.client.post('/api/v1/auth/login', json=self.account).status_code, 429)
 
+    def test_password_change_revokes_other_sessions(self):
+        old_token = self.client.cookies.get('finance_session')
+        self.client.post('/api/v1/auth/login', json=self.account)
+        response = self.client.post('/api/v1/auth/password', json={'current_password': 'wrong', 'new_password': 'New-password-456'})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get('/api/v1/auth/me').status_code, 200)
+        response = self.client.post('/api/v1/auth/password', json={'current_password': self.account['password'], 'new_password': 'New-password-456'})
+        self.assertEqual(response.status_code, 200, response.text)
+        new_token = self.client.cookies.get('finance_session')
+        self.assertEqual(self.client.get('/api/v1/auth/me').status_code, 200)
+        self.client.cookies.clear()
+        self.client.cookies.set('finance_session', old_token)
+        self.assertEqual(self.client.get('/api/v1/auth/me').status_code, 401)
+        self.assertEqual(self.client.post('/api/v1/auth/login', json=self.account).status_code, 401)
+        self.assertEqual(self.client.post('/api/v1/auth/login', json={**self.account, 'password': 'New-password-456'}).status_code, 200)
+        self.assertNotEqual(new_token, old_token)
+
+    def test_opening_balance_and_account_isolation(self):
+        self.assertEqual(self.client.get('/api/v1/analytics/balance').json()['balance'], '0.00')
+        response = self.client.put('/api/v1/analytics/balance', json={'opening_balance': '1000.00'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.transaction(amount='250.00')
+        self.transaction(amount='500.00', transaction_type='income')
+        self.transaction(amount='900.00', transaction_type='income', transaction_date='2099-01-01T00:00:00Z')
+        self.assertEqual(Decimal(self.client.get('/api/v1/analytics/balance').json()['balance']), Decimal('1250.00'))
+        self.client.post('/api/v1/auth/register', json={'login': 'other_balance_user', 'password': 'Other-password-123'})
+        self.assertEqual(Decimal(self.client.get('/api/v1/analytics/balance').json()['balance']), 0)
+
+    def test_schedule_confirmation_duplicate_and_month_end(self):
+        payload = {'title': 'Интернет', 'amount': '700.00', 'transaction_type': 'expense', 'category': 'Подписки', 'billing_day': 31, 'next_payment_date': '2026-01-31'}
+        created = self.client.post('/api/v1/recurring/', json=payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        row_id = created.json()['id']
+        url = f'/api/v1/recurring/{row_id}/confirm'
+        confirm = {'due_date': '2026-01-31', 'transaction_date': '2026-10-20'}
+        first = self.client.post(url, json=confirm)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()['next_payment_date'], '2026-02-28')
+        self.assertEqual(self.client.post(url, json=confirm).status_code, 409)
+        self.assertEqual(len(self.report().json()['transactions']), 1)
+        second = self.client.post(url, json={**confirm, 'due_date': '2026-02-28'})
+        self.assertEqual(second.json()['next_payment_date'], '2026-03-31')
+        self.client.patch(f'/api/v1/recurring/{row_id}/toggle')
+        self.assertEqual(self.client.post(url, json={**confirm, 'due_date': '2026-03-31'}).status_code, 409)
+        self.assertEqual(len(self.report().json()['transactions']), 2)
+
+    def test_schedule_edit_and_ownership(self):
+        payload = {'title': 'Аванс', 'amount': '20000.00', 'transaction_type': 'income', 'category': 'Зарплата', 'billing_day': 10, 'next_payment_date': '2026-11-10'}
+        row_id = self.client.post('/api/v1/recurring/', json=payload).json()['id']
+        updated = self.client.put(f'/api/v1/recurring/{row_id}', json={**payload, 'amount': '25000.00'})
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()['id'], row_id)
+        self.assertEqual(Decimal(updated.json()['amount']), Decimal('25000'))
+        self.client.post('/api/v1/auth/register', json={'login': 'other_schedule_user', 'password': 'Other-password-123'})
+        self.assertEqual(self.client.put(f'/api/v1/recurring/{row_id}', json=payload).status_code, 404)
+        self.assertEqual(self.client.post(f'/api/v1/recurring/{row_id}/confirm', json={'due_date': '2026-11-10', 'transaction_date': '2026-11-10'}).status_code, 404)
+
+    def test_concurrent_confirmation_is_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        payload = {'title': 'Подписка', 'amount': '449', 'transaction_type': 'expense', 'category': 'Подписки', 'billing_day': 22, 'next_payment_date': '2026-10-22'}
+        row_id = self.client.post('/api/v1/recurring/', json=payload).json()['id']
+        def confirm():
+            return self.client.post(f'/api/v1/recurring/{row_id}/confirm', json={'due_date': '2026-10-22', 'transaction_date': '2026-10-22'}).status_code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            statuses = list(executor.map(lambda _: confirm(), range(2)))
+        self.assertEqual(sorted(statuses), [200, 409])
+        self.assertEqual(len(self.report().json()['transactions']), 1)
+
+    def test_recovery_code_resets_password_and_revokes_sessions(self):
+        old_session = self.client.cookies.get('finance_session')
+        code = self.client.post('/api/v1/auth/recovery-code', json={'current_password': self.account['password']}).json()['recovery_code']
+        self.client.cookies.clear()
+        payload = {**self.account, 'password': 'Recovered-password-456', 'recovery_code': code}
+        bad = self.client.post('/api/v1/auth/reset-password', json={**payload, 'recovery_code': 'wrong'})
+        self.assertEqual(bad.status_code, 400)
+        response = self.client.post('/api/v1/auth/reset-password', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        new_code = response.json()['recovery_code']
+        self.assertNotEqual(new_code, code)
+        self.assertEqual(self.client.get('/api/v1/auth/me').json()['id'], self.user_id)
+        self.client.cookies.clear()
+        self.client.cookies.set('finance_session', old_session)
+        self.assertEqual(self.client.get('/api/v1/auth/me').status_code, 401)
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json=payload).status_code, 400)
+        self.assertEqual(self.client.post('/api/v1/auth/login', json=self.account).status_code, 401)
+        self.assertEqual(self.client.post('/api/v1/auth/login', json={**self.account, 'password': payload['password']}).status_code, 200)
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json={**payload, 'recovery_code': new_code}).status_code, 200)
+
+    def test_recovery_setup_requires_password_and_replaces_code(self):
+        self.assertEqual(self.client.post('/api/v1/auth/recovery-code', json={'current_password': 'wrong'}).status_code, 400)
+        first = self.client.post('/api/v1/auth/recovery-code', json={'current_password': self.account['password']}).json()['recovery_code']
+        second = self.client.post('/api/v1/auth/recovery-code', json={'current_password': self.account['password']}).json()['recovery_code']
+        self.assertNotEqual(first, second)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.post('/api/v1/auth/recovery-code', json={'current_password': self.account['password']}).status_code, 401)
+        payload = {**self.account, 'recovery_code': first}
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json=payload).status_code, 400)
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json={**payload, 'login': 'unknown_user', 'recovery_code': second}).status_code, 400)
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json={**payload, 'recovery_code': second}).status_code, 200)
+
+    def test_registration_recovery_code_and_reset_rate_limit(self):
+        response = self.client.post('/api/v1/auth/register', json={'login': 'recovery_signup', 'password': self.account['password']})
+        code = response.json()['recovery_code']
+        self.assertEqual(len(code), 40)
+        payload = {'login': 'recovery_signup', 'password': 'New-password-123', 'recovery_code': code}
+        self.client.cookies.clear()
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json=payload).status_code, 200)
+        auth_attempts.clear()
+        for _ in range(30):
+            self.assertEqual(self.client.post('/api/v1/auth/reset-password', json=payload).status_code, 400)
+        self.assertEqual(self.client.post('/api/v1/auth/reset-password', json=payload).status_code, 429)
+
+    def test_salary_month_range_includes_both_boundary_days(self):
+        for date, amount, kind in [
+            ('2026-09-22T23:59:59.999999Z', '999', 'income'),
+            ('2026-09-23T00:00:00Z', '1000', 'income'),
+            ('2026-10-23T23:59:59.999999Z', '250', 'expense'),
+            ('2026-10-24T00:00:00Z', '888', 'expense'),
+        ]:
+            self.assertEqual(self.transaction(transaction_date=date, amount=amount, transaction_type=kind).status_code, 201)
+        data = self.client.get('/api/v1/analytics/period', params={'start_date': '2026-09-23', 'end_date': '2026-10-23'}).json()
+        self.assertEqual(Decimal(data['total_income']), Decimal('1000'))
+        self.assertEqual(Decimal(data['total_expense']), Decimal('250'))
+        self.assertEqual(Decimal(data['net_profit']), Decimal('750'))
+        self.assertEqual(len(data['transactions']), 2)
+
+    def test_day_report_includes_whole_day_only(self):
+        self.transaction(amount='10.00', transaction_date='2026-10-21T23:59:59Z')
+        self.transaction(amount='20.00', transaction_date='2026-10-22T00:00:00Z')
+        self.transaction(amount='30.00', transaction_date='2026-10-22T23:59:59.999999Z')
+        self.transaction(amount='40.00', transaction_date='2026-10-23T00:00:00Z')
+        response = self.client.get('/api/v1/analytics/period', params={'start_date': '2026-10-22', 'end_date': '2026-10-22'})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(Decimal(data['total_expense']), Decimal('50.00'))
+        self.assertEqual(Decimal(data['expense_by_category'][0]['amount']), Decimal('50.00'))
+        self.assertEqual(len(data['transactions']), 2)
+        self.assertEqual(data['start_date'], '2026-10-22')
+        self.assertEqual(data['end_date'], '2026-10-22')
+
+    def test_range_across_months_and_account_isolation(self):
+        self.transaction(amount='150.00', transaction_type='income', transaction_date='2026-09-30T12:00:00Z')
+        self.transaction(amount='50.00', transaction_date='2026-10-01T12:00:00Z')
+        params = {'start_date': '2026-09-30', 'end_date': '2026-10-01'}
+        data = self.client.get('/api/v1/analytics/period', params=params).json()
+        self.assertEqual(Decimal(data['net_profit']), Decimal('100.00'))
+        self.assertEqual(len(data['transactions']), 2)
+        self.client.post('/api/v1/auth/register', json={'login': 'other_period_user', 'password': 'Other-password-123'})
+        data = self.client.get('/api/v1/analytics/period', params=params).json()
+        self.assertEqual(len(data['transactions']), 0)
+        self.assertEqual(Decimal(data['net_profit']), 0)
+
+    def test_period_validation_and_leap_day(self):
+        for start, end in [('2026-10-23', '2026-10-22'), ('1999-12-31', '2000-01-01'), ('2100-12-31', '2101-01-01'), ('2026-02-30', '2026-03-01')]:
+            response = self.client.get('/api/v1/analytics/period', params={'start_date': start, 'end_date': end})
+            self.assertEqual(response.status_code, 422, response.text)
+        self.transaction(amount='99.99', transaction_date='2024-02-29T23:59:59Z')
+        data = self.client.get('/api/v1/analytics/period', params={'start_date': '2024-02-29', 'end_date': '2024-02-29'}).json()
+        self.assertEqual(Decimal(data['total_expense']), Decimal('99.99'))
+        self.assertEqual(len(data['transactions']), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

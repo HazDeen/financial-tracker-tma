@@ -16,11 +16,13 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 export const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
+export interface RecoveryAccount extends Account { recovery_code: string }
 export interface Account { id: number; login: string }
 let currentAccount: Account | null = null;
 export const setCurrentAccount = (account: Account | null) => { currentAccount = account; };
@@ -28,7 +30,9 @@ export const getCurrentUserId = (): number => currentAccount?.id ?? 0;
 export const AuthService = {
   me: async (): Promise<Account> => (await api.get('/auth/me')).data,
   login: async (login: string, password: string): Promise<Account> => (await api.post('/auth/login', { login, password })).data,
-  register: async (login: string, password: string): Promise<Account> => (await api.post('/auth/register', { login, password })).data,
+  register: async (login: string, password: string): Promise<RecoveryAccount> => (await api.post('/auth/register', { login, password })).data,
+  resetPassword: async (login: string, password: string, recovery_code: string): Promise<RecoveryAccount> => (await api.post('/auth/reset-password', {login, password, recovery_code})).data,
+  recoveryCode: async (current_password: string): Promise<{ recovery_code: string }> => (await api.post('/auth/recovery-code', {current_password})).data,
   logout: async () => { await api.post('/auth/logout'); },
 };
 export const errorMessage = (error: unknown, fallback = 'Не удалось выполнить запрос') => {
@@ -59,6 +63,9 @@ export const FinanceService = {
   },
   updateTransaction: async (id: number, payload: unknown) => (await api.put(`/transactions/${id}`, payload)).data,
   deleteTransaction: async (id: number) => { await api.delete(`/transactions/${id}`); },
+  getPeriodReport: async (start_date: string, end_date: string): Promise<MonthlyReportResponse> => {
+    return (await api.get('/analytics/period', {params: {start_date, end_date}})).data;
+  },
   getMonthlyReport: async (year: number, month: number, userId?: number): Promise<MonthlyReportResponse> => {
     const { data } = await api.get('/analytics/monthly', { params: { year, month, user_id: userId } });
     return data;
@@ -75,7 +82,7 @@ export const FinanceService = {
     return [];
   },
   getAIAdvice: async (year: number, month: number, userId?: number): Promise<AIAdvisorResponse> => {
-    const { data } = await api.get('/ai-advisor/analyze', { params: { year, month, user_id: userId } });
+    const { data } = await api.get('/ai-advisor/analyze', { params: { year, month, user_id: userId }, timeout: 120000 });
     return data;
   },
   getSalarySummary: async (year: number, month: number, userId?: number): Promise<SalarySummaryResponse> => {
@@ -142,3 +149,11 @@ export const FinanceService = {
 
 };
 
+
+export const PersonalService = {
+  balance: async (): Promise<{balance:string; opening_balance:string}> => (await api.get('/analytics/balance')).data,
+  setBalance: async (opening_balance: string) => (await api.put('/analytics/balance', {opening_balance})).data,
+  changePassword: async (current_password: string, new_password: string) => (await api.post('/auth/password', {current_password, new_password})).data,
+  updateSchedule: async (id:number, payload:unknown) => (await api.put(`/recurring/${id}`,payload)).data,
+  confirmSchedule: async (id:number, due_date:string, transaction_date:string) => (await api.post(`/recurring/${id}/confirm`,{due_date,transaction_date})).data,
+};

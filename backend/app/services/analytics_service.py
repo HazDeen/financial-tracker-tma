@@ -1,5 +1,4 @@
 # backend/app/services/analytics_service.py
-import calendar
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Tuple
@@ -34,7 +33,12 @@ class AnalyticsService:
         month: int
     ) -> MonthlyReportResponse:
         start_date, end_date = cls._get_month_bounds(year, month)
+        return await cls.get_period_report(db, user_id, start_date, end_date)
 
+    @classmethod
+    async def get_period_report(cls, db: AsyncSession, user_id: int,
+                                start_date: datetime, end_date: datetime) -> MonthlyReportResponse:
+        # Bounds are half-open: include the entire last selected day, never the next day.
         # 1. Запрос общих сумм доходов и расходов за месяц
         totals_query = select(
             Transaction.transaction_type,
@@ -118,8 +122,8 @@ class AnalyticsService:
         ]
 
         return MonthlyReportResponse(
-            year=year,
-            month=month,
+            year=start_date.year,
+            month=start_date.month,
             total_income=total_income,
             total_expense=total_expense,
             net_profit=net_profit,

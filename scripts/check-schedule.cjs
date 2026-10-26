@@ -1,0 +1,16 @@
+const ts = require('../frontend/node_modules/typescript');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const compiled = ts.transpileModule(fs.readFileSync('frontend/src/lib/schedule.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const context = { exports: {} };
+vm.runInNewContext(compiled, context);
+const forecast = context.exports.plannedExpenses;
+const expense = { is_active: true, transaction_type: 'expense', next_payment_date: '2026-01-31', billing_day: 31, amount: '100' };
+assert.equal(forecast([expense], '2026-04-01', '2026-01-01'), 300);
+assert.equal(forecast([expense], '2026-02-28', '2026-01-01'), 200);
+assert.equal(forecast([{...expense, is_active:false}], '2026-04-01', '2026-01-01'), 0);
+assert.equal(forecast([{...expense, transaction_type:'income'}], '2026-04-01', '2026-01-01'), 0);
+assert.equal(forecast([expense], undefined, '2026-01-01'), 100);
+assert.equal(forecast([{...expense,next_payment_date:'2026-12-31'}], '2027-02-28', '2026-12-01'), 300);
+console.log('Schedule forecast: month ends, overdue events, year boundary, paused events — passed.');

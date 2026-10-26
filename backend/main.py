@@ -35,7 +35,7 @@ auth_attempts = defaultdict(deque)
 
 @app.middleware("http")
 async def protect_requests(request: Request, call_next):
-    if request.method == "POST" and request.url.path in {"/api/v1/auth/login", "/api/v1/auth/register"}:
+    if request.method == "POST" and request.url.path in {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/password", "/api/v1/auth/recovery-code", "/api/v1/auth/reset-password"}:
         now = monotonic()
         host = request.client.host if request.client else "unknown"
         # Ограничиваем память и перебор. Для нескольких серверов нужен общий limiter на reverse proxy.

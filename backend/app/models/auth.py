@@ -17,3 +17,9 @@ class WebSession(Base):
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("web_accounts.id"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class WebRecoveryCode(Base):
+    __tablename__ = "web_recovery_codes"
+    account_id: Mapped[int] = mapped_column(ForeignKey("web_accounts.id"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64))

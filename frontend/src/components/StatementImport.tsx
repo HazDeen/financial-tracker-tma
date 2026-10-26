@@ -32,7 +32,7 @@ export function StatementImport({ onSuccess }: { onSuccess: () => void }) {
       <div className="statement-totals"><span>Доходы <b>{rub(preview.income)}</b></span><span>Расходы <b>{rub(preview.expense)}</b></span></div>
       <div className="statement-rows">{preview.transactions.map((tx, index) => <div key={index}>
         <span><small>{new Date(tx.transaction_date).toLocaleDateString('ru-RU')}</small>{tx.description}</span>
-        <strong className={tx.transaction_type === 'income' ? 'text-emerald-300' : 'text-rose-300'}>{tx.transaction_type === 'income' ? '+' : '−'}{rub(tx.amount)}</strong>
+        <strong className={tx.transaction_type === 'income' ? 'income' : 'expense'}>{tx.transaction_type === 'income' ? '+' : '−'}{rub(tx.amount)}</strong>
       </div>)}</div>
       {preview.total > 20 && <p>Показаны первые 20 операций.</p>}
       <button type="button" className="auth-submit" disabled={busy} onClick={async () => {
@@ -42,7 +42,7 @@ export function StatementImport({ onSuccess }: { onSuccess: () => void }) {
         finally { setBusy(false); }
       }}>Импортировать {preview.total} операций</button>
     </>}
-    {result && <p role="status" className="text-emerald-300">{result}</p>}
+    {result && <p role="status" className="income">{result}</p>}
     <div className="statement-examples">Тестовые CSV с вымышленными операциями: <a href="/examples/alfabank.csv" download>Альфа-Банк</a> · <a href="/examples/tbank.csv" download>Т-Банк</a> · <a href="/examples/sberbank.csv" download>СберБанк</a></div>
   </section>;
 }

@@ -1,0 +1,18 @@
+const ts = require('../frontend/node_modules/typescript');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const source = ts.transpileModule(fs.readFileSync('frontend/src/lib/period.ts', 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+const context={exports:{}};vm.runInNewContext(source,context);
+const {monthPeriod,shiftPeriod,validPeriod}=context.exports;
+assert.equal(monthPeriod('2024-02').end,'2024-02-29');
+assert.equal(monthPeriod('2026-02').end,'2026-02-28');
+assert.equal(shiftPeriod(monthPeriod('2026-12'),1).start,'2027-01-01');
+assert.equal(shiftPeriod({mode:'day',start:'2026-03-01',end:'2026-03-01'},-1).start,'2026-02-28');
+assert.equal(shiftPeriod({mode:'range',start:'2026-10-20',end:'2026-10-22'},-1).start,'2026-10-17');
+assert.equal(shiftPeriod({mode:'range',start:'2026-10-20',end:'2026-10-22'},-1).end,'2026-10-19');
+assert.equal(shiftPeriod(monthPeriod('2000-01'),-1).start,'2000-01-01');
+assert.equal(shiftPeriod(monthPeriod('2100-12'),1).end,'2100-12-31');
+assert.equal(validPeriod({mode:'range',start:'2026-02-30',end:'2026-03-03'}),false);
+assert.equal(validPeriod({mode:'range',start:'2026-10-23',end:'2026-10-22'}),false);
+console.log('Period checks passed: leap day, year boundary, interval navigation, date limits and invalid ranges.');

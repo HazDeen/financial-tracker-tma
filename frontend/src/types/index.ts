@@ -90,6 +90,8 @@ export interface SavingsGoalResponse {
 }
 
 export interface RecurringResponse {
+  category: string;
+  next_payment_date: string;
   id: number;
   user_id: number;
   title: string;
