@@ -40,11 +40,11 @@ install -m 644 "$FINANCE_APK" frontend/public/moi-finansy-1.4.0.apk
 npm ci --prefix frontend
 VITE_API_URL=/api/v1 npm run build --prefix frontend
 pm2 restart smart-finance-api
+python3 scripts/check-server.py --base-url http://127.0.0.1:8003
 if [ "$(id -u)" -eq 0 ]; then
   python3 scripts/configure-caddy.py
 else
   sudo python3 scripts/configure-caddy.py
 fi
-curl --fail --silent --show-error https://finance.hazdeen.xyz/api | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ok"; print("/api: JSON response OK")'
-curl --fail --silent --show-error https://finance.hazdeen.xyz/api/openapi.json | python3 -c 'import json,sys; assert "/api/v1/auth/login" in json.load(sys.stdin)["paths"]; print("API schema: OK")'
+python3 scripts/check-server.py
 printf 'Updated. APK: https://finance.hazdeen.xyz/moi-finansy-1.4.0.apk\n'
