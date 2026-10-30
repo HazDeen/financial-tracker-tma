@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.finance import Transaction, TransactionType
+from app.services.deposit_service import sync_deposits
 from app.schemas.analytics import MonthlyReportResponse, CategorySummary, TopCategory, TransactionDTO
 
 class AnalyticsService:
@@ -38,6 +39,7 @@ class AnalyticsService:
     @classmethod
     async def get_period_report(cls, db: AsyncSession, user_id: int,
                                 start_date: datetime, end_date: datetime) -> MonthlyReportResponse:
+        await sync_deposits(db, user_id)
         # Bounds are half-open: include the entire last selected day, never the next day.
         # 1. Запрос общих сумм доходов и расходов за месяц
         totals_query = select(

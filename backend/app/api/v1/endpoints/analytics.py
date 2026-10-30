@@ -42,6 +42,8 @@ class BalanceSettings(BaseModel):
 
 @router.get('/balance')
 async def get_balance(user_id: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    from app.services.deposit_service import sync_deposits
+    await sync_deposits(db, user_id)
     profile = await db.get(FinanceProfile, user_id)
     opening = profile.opening_balance if profile else Decimal('0.00')
     rows = (await db.execute(select(Transaction.transaction_type, func.sum(Transaction.amount)).where(

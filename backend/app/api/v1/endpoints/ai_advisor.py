@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services.ai_service import AIAdvisorService
-from app.schemas.ai import AIAdvisorResponse
+from app.schemas.ai import AIAdvisorResponse, AdvisorChatRequest
 
 router = APIRouter()
 
@@ -15,8 +15,14 @@ async def analyze_monthly_finances(
     user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Запускает гибридный анализ месячного бюджета через ИИ Gemini 2.5 Pro.
-    Возвращает Markdown-инсайты и валидный JSON с параметрами виджетов для Telegram Mini App.
-    """
+    """Совместимый месячный разбор: проверенные карточки и пояснение."""
     return await AIAdvisorService.get_monthly_advice(db, user_id, year, month)
+
+
+@router.post("/chat", response_model=AIAdvisorResponse)
+async def chat_about_finances(
+    request: AdvisorChatRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await AIAdvisorService.chat(db, user_id, request)

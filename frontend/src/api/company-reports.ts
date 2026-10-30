@@ -5,6 +5,10 @@ export interface CompanyReport {
   metrics: Record<FigureKey, string | null>; created_at: string;
 }
 export const CompanyReports = {
+  extract: async (file: File, valueColumn = 0): Promise<{ metrics: Partial<Record<FigureKey, string>>; warnings: string[]; scale: string }> => {
+    const data = new FormData(); data.append('file', file); data.append('value_column', String(valueColumn));
+    return (await api.post('/company-reports/extract', data, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
+  },
   list: async (): Promise<CompanyReport[]> => (await api.get('/company-reports')).data,
   upload: async (company: string, period: string, file: File, metrics: Record<FigureKey, number | null>): Promise<CompanyReport> => {
     const data = new FormData();

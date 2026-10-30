@@ -51,7 +51,13 @@ export interface CategoryLimitWidget {
 
 export type AIWidget = GoalProgressBarWidget | CategoryLimitWidget;
 
+export interface AdvisorMessage { role: 'user' | 'assistant'; content: string; }
+export interface Recommendation { id: string; title: string; observation: string; action: string; priority: 'normal' | 'warning'; }
 export interface AIAdvisorResponse {
+  start_date: string;
+  end_date: string;
+  recommendations: Recommendation[];
+  source: 'gemini' | 'rules' | 'empty';
   year: number;
   month: number;
   markdown_insights: string;

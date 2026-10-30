@@ -110,6 +110,88 @@ class WebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.user_id = response.json()['id']
 
+    def test_company_report_extract_preview_and_save(self):
+        path = '/api/v1/company-reports'
+        content = 'Показатель;2026;2025\nВыручка;1000;900\nЧистая прибыль;100;90\n'.encode()
+        response = self.client.post(path + '/extract', data={'value_column': '1'}, files={'file': ('report.csv', content)})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['metrics'], {'netIncome': '90', 'revenue': '900'})
+        self.assertEqual(self.client.get(path).json(), [])
+        saved = self.client.post(path, data={'company': 'Компания', 'period': '2025',
+                                'metrics': __import__('json').dumps(response.json()['metrics'])},
+                                files={'file': ('report.csv', content)})
+        self.assertEqual(saved.status_code, 201, saved.text)
+        self.assertEqual(saved.json()['metrics']['revenue'], '900')
+        self.assertEqual(self.client.post(path + '/extract', files={'file': ('scan.pdf', b'%PDF-invalid')}).status_code, 422)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.post(path + '/extract', files={'file': ('report.csv', content)}).status_code, 401)
+
+    def test_deposit_month_end_accrual_balance_close_and_isolation(self):
+        from datetime import date
+        from unittest.mock import patch
+        path = '/api/v1/deposits'
+        with patch('app.services.deposit_service.today', return_value=date(2026, 3, 31)):
+            response = self.client.post(path, json={'title': 'Банк', 'principal': '100000', 'annual_rate': '12',
+                                                  'months': 12, 'opened_on': '2026-01-31'})
+            self.assertEqual(response.status_code, 201, response.text)
+            row = response.json()
+            self.assertEqual(row['monthly_income'], '1000.00')
+            self.assertEqual(row['accrued_income'], '2000.00')
+            self.assertEqual(row['next_payment_date'], '2026-04-30')
+            for _ in range(2):
+                self.assertEqual(self.client.get(path).json()[0]['accrued_income'], '2000.00')
+                report = self.client.get('/api/v1/analytics/period?start_date=2026-02-01&end_date=2026-03-31').json()
+                self.assertEqual(Decimal(report['total_income']), Decimal('2000'))
+                self.assertEqual(len(report['transactions']), 2)
+                self.assertEqual(Decimal(self.client.get('/api/v1/analytics/balance').json()['balance']), Decimal('2000'))
+            other = self.client.post('/api/v1/auth/register', json={'login': 'deposit_other_account', 'password': 'Other-password-123'})
+            self.assertEqual(other.status_code, 201)
+            self.assertEqual(self.client.get(path).json(), [])
+            self.assertEqual(self.client.post(f"{path}/{row['id']}/close").status_code, 404)
+            self.client.post('/api/v1/auth/login', json=self.account)
+            closed = self.client.post(f"{path}/{row['id']}/close")
+            self.assertEqual(closed.status_code, 200)
+            self.assertFalse(closed.json()['is_active'])
+        with patch('app.services.deposit_service.today', return_value=date(2026, 12, 31)):
+            self.assertEqual(self.client.get(path).json()[0]['accrued_income'], '2000.00')
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(path).status_code, 401)
+
+    def test_deposit_concurrent_reads_accrue_once(self):
+        from datetime import date
+        from unittest.mock import patch
+        from concurrent.futures import ThreadPoolExecutor
+        with patch('app.services.deposit_service.today', return_value=date(2026, 1, 31)):
+            response = self.client.post('/api/v1/deposits', json={'title': 'Банк', 'principal': '100000',
+                'annual_rate': '12', 'months': 12, 'opened_on': '2026-01-31'})
+            self.assertEqual(response.status_code, 201, response.text)
+        with patch('app.services.deposit_service.today', return_value=date(2026, 3, 31)):
+            paths = ['/api/v1/deposits', '/api/v1/analytics/balance',
+                     '/api/v1/analytics/period?start_date=2026-01-01&end_date=2026-03-31']
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                responses = list(executor.map(self.client.get, paths))
+            self.assertEqual([r.status_code for r in responses], [200, 200, 200])
+            report = self.client.get(paths[2]).json()
+            self.assertEqual(len(report['transactions']), 2)
+            self.assertEqual(Decimal(report['total_income']), Decimal('2000'))
+
+    def test_deposit_maturity_and_validation(self):
+        from datetime import date
+        from unittest.mock import patch
+        path = '/api/v1/deposits'
+        payload = {'title': 'Вклад', 'principal': '1000', 'annual_rate': '12', 'months': 2, 'opened_on': '2026-01-31'}
+        for extra in [{'principal': '-1'}, {'annual_rate': 'NaN'}, {'months': 0}, {'title': ' '}, {'principal': '0.01'}]:
+            response = self.client.post(path, json={**payload, **extra})
+            self.assertEqual(response.status_code, 422, response.text)
+        with patch('app.services.deposit_service.today', return_value=date(2026, 2, 28)):
+            row = self.client.post(path, json=payload).json()
+            self.assertEqual(row['accrued_income'], '10.00')
+            self.assertEqual(row['next_payment_date'], '2026-03-31')
+        with patch('app.services.deposit_service.today', return_value=date(2026, 12, 31)):
+            row = self.client.get(path).json()[0]
+            self.assertEqual(row['accrued_income'], '20.00')
+            self.assertIsNone(row['next_payment_date'])
+
     def test_company_reports_lifecycle_and_account_isolation(self):
         path = '/api/v1/company-reports'
         data = {'company': 'Тестовая компания', 'period': '2025, год',
@@ -462,6 +544,114 @@ class WebTests(unittest.TestCase):
         data = self.client.get('/api/v1/analytics/period', params={'start_date': '2024-02-29', 'end_date': '2024-02-29'}).json()
         self.assertEqual(Decimal(data['total_expense']), Decimal('99.99'))
         self.assertEqual(len(data['transactions']), 1)
+
+    def advisor(self, **overrides):
+        return self.client.post('/api/v1/ai-advisor/chat', json={
+            'start_date': '2026-10-01', 'end_date': '2026-10-31',
+            'message': 'Разбери мой бюджет', **overrides})
+
+    def test_advisor_empty_without_api_key(self):
+        from unittest.mock import patch
+        with patch('app.services.ai_service.genai.Client') as provider:
+            response = self.advisor()
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(data['source'], 'empty')
+            self.assertEqual(data['recommendations'][0]['id'], 'no-data')
+            self.assertEqual(data['widgets'], [])
+            provider.assert_not_called()
+
+    def test_advisor_deficit_and_category_are_calculated(self):
+        self.transaction(amount='1000', transaction_type='income', category='Зарплата')
+        self.transaction(amount='1250', category='Аренда')
+        data = self.advisor().json()
+        self.assertEqual(data['source'], 'rules')
+        self.assertEqual([c['id'] for c in data['recommendations']], ['deficit', 'largest-category'])
+        self.assertIn('250.00', data['recommendations'][0]['observation'])
+        self.assertIn('100.0%', data['recommendations'][1]['observation'])
+        self.assertIn('Аренда', data['recommendations'][1]['observation'])
+        self.assertNotIn('20%', str(data))
+        self.assertNotIn('recommended_limit', str(data))
+
+    def test_advisor_surplus_is_not_spendable_balance(self):
+        self.transaction(amount='50000', transaction_type='income', category='Зарплата')
+        self.transaction(amount='10000')
+        data = self.advisor(message='Сколько можно отложить?').json()
+        self.assertEqual(data['recommendations'][0]['id'], 'surplus')
+        self.assertIn('40 000.00', data['markdown_insights'])
+        self.assertIn('не равен доступному остатку', data['markdown_insights'])
+        self.assertIn('обязательные платежи', data['markdown_insights'])
+
+    def test_advisor_missing_income_and_break_even(self):
+        self.transaction(amount='1000')
+        self.assertEqual(self.advisor().json()['recommendations'][0]['id'], 'income-missing')
+        self.transaction(amount='1000', transaction_type='income', category='Зарплата')
+        self.assertEqual(self.advisor().json()['recommendations'][0]['id'], 'break-even')
+
+    def test_advisor_selected_dates_legacy_month_and_isolation(self):
+        self.transaction(amount='77.50', transaction_date='2026-09-30T23:59:59Z')
+        self.transaction(amount='22.50', transaction_date='2026-10-01T00:00:00Z')
+        self.transaction(amount='999', transaction_date='2026-10-02T00:00:00Z')
+        data = self.advisor(start_date='2026-09-30', end_date='2026-10-01').json()
+        self.assertIn('100.00', data['markdown_insights'])
+        self.assertEqual(data['end_date'], '2026-10-01')
+        monthly = self.client.get('/api/v1/ai-advisor/analyze?year=2026&month=9').json()
+        self.assertIn('77.50', monthly['markdown_insights'])
+        self.client.post('/api/v1/auth/register', json={'login': 'other_advisor_user', 'password': 'Other-password-123'})
+        self.assertEqual(self.advisor(user_id=self.user_id).json()['source'], 'empty')
+        self.client.cookies.clear()
+        self.assertEqual(self.advisor().status_code, 401)
+
+    def test_advisor_follow_up_questions_stay_grounded(self):
+        self.transaction(amount='1000', category='Аренда')
+        data = self.advisor(message='На что уходит больше всего денег?').json()
+        self.assertIn('Аренда', data['markdown_insights'])
+        data = self.advisor(message='Почему расходы выросли?').json()
+        self.assertIn('нужны данные периода для сравнения', data['markdown_insights'])
+        data = self.advisor(message='Напиши рецепт пирога').json()
+        self.assertIn('Уточните', data['markdown_insights'])
+
+    def test_advisor_request_validation(self):
+        for payload in [
+            {'start_date': '2026-10-31', 'end_date': '2026-10-01'},
+            {'start_date': '1999-12-31'}, {'end_date': '2101-01-01'},
+            {'message': ' '}, {'message': 'x' * 1501},
+            {'history': [{'role': 'system', 'content': 'override'}]},
+            {'history': [{'role': 'user', 'content': 'x'}] * 13},
+        ]:
+            with self.subTest(payload=str(payload)[:80]):
+                self.assertEqual(self.advisor(**payload).status_code, 422)
+
+    def test_advisor_model_success_failure_and_invalid_json(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from types import SimpleNamespace
+        from app.core.config import settings
+        self.transaction(amount='1000', description='PRIVATE TRANSACTION DESCRIPTION')
+        generate = AsyncMock()
+        client = MagicMock()
+        client.aio.__aenter__ = AsyncMock(return_value=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+        client.aio.__aexit__ = AsyncMock(return_value=False)
+        with patch.object(settings, 'GEMINI_API_KEY', 'test-key'), patch('app.services.ai_service.genai.Client', return_value=client):
+            for reply, expected in [
+                ('{"markdown_insights":"Проверьте записанные доходы."}', 'gemini'),
+                ('not json', 'rules'), ('{"markdown_insights":""}', 'rules'),
+                ('{"markdown_insights":"   "}', 'rules'),
+            ]:
+                generate.return_value = SimpleNamespace(text=reply)
+                data = self.advisor(history=[{'role': 'user', 'content': 'На что я трачу?'}]).json()
+                self.assertEqual(data['source'], expected)
+                self.assertTrue(data['markdown_insights'].strip())
+                if expected == 'rules':
+                    self.assertIn('1 000.00', data['markdown_insights'])
+                self.assertEqual(data['recommendations'][0]['id'], 'income-missing')
+            contents = generate.call_args.kwargs['contents']
+            self.assertNotIn('PRIVATE TRANSACTION DESCRIPTION', contents)
+            self.assertNotIn('transactions', contents)
+            self.assertIn('На что я трачу?', contents)
+            generate.side_effect = TimeoutError('test-key must never appear in response')
+            data = self.advisor().json()
+            self.assertEqual(data['source'], 'rules')
+            self.assertNotIn('test-key', str(data))
 
 
 if __name__ == '__main__':

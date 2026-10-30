@@ -1,4 +1,5 @@
 import { FinanceTools } from "./components/FinanceTools";
+import { FinancialAdvisor } from "./components/FinancialAdvisor";
 import { BrandMark } from "./components/BrandMark";
 import { AndroidDownload } from "./components/AndroidDownload";
 import { RecoverySettings } from "./components/RecoverySettings";
@@ -21,6 +22,7 @@ import {
   EyeOff,
   LayoutDashboard,
   ListFilter,
+  MessageSquare,
   LogOut,
   Plus,
   Search,
@@ -45,7 +47,7 @@ import type {
   TransactionDTO,
 } from "./types";
 
-type Tab = "home" | "operations" | "schedule" | "tools" | "profile";
+type Tab = "home" | "operations" | "schedule" | "tools" | "advisor" | "profile";
 type Kind = "income" | "expense";
 type Modal =
   | { type: "transaction"; item?: TransactionDTO; kind?: Kind }
@@ -76,6 +78,7 @@ const tabs = [
   { id: "home", label: "Главная", icon: LayoutDashboard },
   { id: "operations", label: "Операции", icon: ChartNoAxesCombined },
   { id: "schedule", label: "Расписание", icon: CalendarDays },
+  { id: "advisor", label: "Советы", icon: MessageSquare },
   { id: "tools", label: "Расчёты", icon: Calculator },
   { id: "profile", label: "Профиль", icon: UserRound },
 ] as const;
@@ -83,6 +86,7 @@ const titleByTab = {
   home: "Деньги под контролем",
   operations: "История операций",
   schedule: "Всё по расписанию",
+  advisor: "Поговорим о деньгах",
   tools: "Считаем на шаг вперёд",
   profile: "Ваш профиль",
 };
@@ -224,6 +228,7 @@ export default function App() {
     opening_balance: "0",
   });
   const [initial, setInitial] = useState(true);
+  const [dataRevision, setDataRevision] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -247,6 +252,7 @@ export default function App() {
       setReport(r);
       setSchedule(s);
       setBalance(b);
+      setDataRevision(value => value + 1);
     } catch (e) {
       if (request === requestRef.current) setError(errorMessage(e));
     } finally {
@@ -443,7 +449,7 @@ export default function App() {
                     ? "ДОХОДЫ И РАСХОДЫ"
                     : tab === "schedule"
                       ? "ПЛАН НА МЕСЯЦ"
-                      : "ЛИЧНОЕ ПРОСТРАНСТВО"}
+                      : tab === "advisor" ? "СОВЕТЫ ПО ВАШЕМУ БЮДЖЕТУ" : "ЛИЧНОЕ ПРОСТРАНСТВО"}
               </p>
               <h1>
                 {titleByTab[tab]}
@@ -456,7 +462,7 @@ export default function App() {
                     ? "Каждая запись на своём месте."
                     : tab === "schedule"
                       ? "Зарплата, подписки и другие регулярные платежи."
-                      : "Настройки, которые делают приложение вашим."}
+                      : tab === "advisor" ? "Понятные рекомендации с опорой на ваши операции." : "Настройки, которые делают приложение вашим."}
               </p>
             </div>
             {tab === "home" || tab === "operations" ? (
@@ -597,6 +603,11 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              </section>
+              <section className="advisor-entry">
+                <span className="advisor-symbol"><MessageSquare size={22} /></span>
+                <div><h2>Что можно улучшить в бюджете?</h2><p>Разберите расходы и обсудите следующие шаги с помощником.</p></div>
+                <button className="text-button" onClick={() => setTab("advisor")}>Получить советы <ArrowRight size={17} /></button>
               </section>
               <div className="content-grid">
                 <section className="panel">
@@ -970,7 +981,11 @@ export default function App() {
               )}
             </>
           )}
-          {tab === "tools" && <FinanceTools />}
+          <div hidden={tab !== "advisor"}>
+            <div className="advisor-period"><p>Выберите даты для рекомендаций</p>{PeriodControl}</div>
+            <FinancialAdvisor key={`${period.start}:${period.end}:${dataRevision}`} period={period} disabled={refreshing || !!error} />
+          </div>
+          {tab === "tools" && <FinanceTools onChanged={() => void load()} />}
           {tab === "profile" && (
             <Profile
               balance={balance.opening_balance}

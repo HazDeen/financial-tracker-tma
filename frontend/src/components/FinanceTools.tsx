@@ -7,6 +7,7 @@ import { errorMessage } from '../api/client';
 import { coupons, deposit, emptyFigures, figureKeys, figureValues, incomeTax, multiples, readNumber, taxBreakdown, taxSource } from '../lib/finance-tools';
 import type { FigureKey, Figures } from '../lib/finance-tools';
 import './FinanceTools.css';
+import { SavedDeposits } from './SavedDeposits';
 
 const money = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 2 }) + ' ₽';
 const tabs = [{ id: 'deposit', label: 'Вклад' }, { id: 'tax', label: 'НДФЛ' }, { id: 'bonds', label: 'Облигации' }, { id: 'companies', label: 'Компании' }] as const;
@@ -67,6 +68,8 @@ function CompaniesCalculator() {
   const [figures, setFigures] = useState<Figures>(emptyFigures); const [company, setCompany] = useState(''); const [period, setPeriod] = useState('2025, год');
   const [file, setFile] = useState<File | null>(null); const [reports, setReports] = useState<CompanyReport[]>([]);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [valueColumn, setValueColumn] = useState(0);
+  const [extracted, setExtracted] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null); const fileInput = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
   const result = calculate(() => multiples(figures));
@@ -77,6 +80,12 @@ function CompaniesCalculator() {
     try { await fn(); } catch (e) { setError(e instanceof Error ? errorMessage(e, e.message) : 'Не удалось выполнить действие'); }
     finally { lock.current = false; setBusy(false); }
   };
+  const extract = (selected: File) => action(async () => {
+    if (selected.size > 10 * 1024 * 1024) throw new Error('Размер отчёта — не больше 10 МБ');
+    const parsed = await CompanyReports.extract(selected, valueColumn);
+    setFigures({ ...emptyFigures(), ...parsed.metrics }); setExtracted(true);
+    setNotice(`Распознано показателей: ${Object.keys(parsed.metrics).length}. ${parsed.warnings.join(' ')}`);
+  });
   const save = () => action(async () => {
     if (!company.trim() || !period.trim() || !file) throw new Error('Укажите компанию, период и выберите файл отчёта');
     if (file.size > 10 * 1024 * 1024) throw new Error('Размер отчёта — не больше 10 МБ');
@@ -92,20 +101,20 @@ function CompaniesCalculator() {
     <div className="ft-multiples" aria-label="Рассчитанные показатели">{explanations.map(([key, title, formula]) => <div key={key}><span>{title}</span><output>{result.value?.[key] == null ? '—' : result.value[key].toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + (key === 'roe' ? '%' : '×')}</output><small>{formula}</small></div>)}</div>
     <p className="ft-note">Сравнивайте компании одной отрасли и сопоставимые периоды. Эти коэффициенты сами по себе не являются рекомендацией купить или продать акции.</p>
     <a className="ft-source" href="https://ipoguide.moex.com/2/0/index.html" target="_blank" rel="noreferrer">О мультипликаторах: руководство Московской биржи ↗</a>
-  </section><section className="panel ft-reports"><h2>Отчёты компаний</h2><p>Прикрепите исходный отчёт к введённым показателям. Файлы сохраняются в вашем аккаунте; автоматического извлечения цифр из PDF и таблиц пока нет.</p>
-    <form onSubmit={e => { e.preventDefault(); void save(); }}><label className="ft-upload"><Upload size={21} /><span>Выберите отчёт <small>PDF, XLSX или CSV · до 10 МБ · до 20 файлов</small></span><input ref={fileInput} aria-label="Файл отчёта компании" type="file" accept=".pdf,.xlsx,.csv" disabled={busy || loading} onChange={e => setFile(e.target.files?.[0] ?? null)} /></label>{file && <p className="ft-file-name">{file.name}</p>}<button className="button primary" disabled={busy || loading || !file || !company.trim() || !period.trim() || !!result.error}>{busy ? 'Сохраняем…' : 'Сохранить отчёт и показатели'}</button></form>
+  </section><section className="panel ft-reports"><h2>Отчёты компаний</h2><p>Загрузите PDF или CSV: найденные показатели заполнят поля выше и пересчитают коэффициенты. Проверьте цифры, укажите компанию и период, затем сохраните. XLSX можно прикрепить с ручным вводом показателей.</p>
+    <a className="ft-source" href="/examples/company-report.csv" download>Скачать пример CSV для автозаполнения</a><form onSubmit={e => { e.preventDefault(); void save(); }}><label className="ft-field"><span>Колонка сумм в отчёте (слева направо)</span><select value={valueColumn} disabled={busy} onChange={e => { setValueColumn(Number(e.target.value)); setExtracted(false); }}>{[0, 1, 2, 3].map(column => <option key={column} value={column}>{column + 1}-я колонка сумм</option>)}</select><small>Если в отчёте несколько лет, выберите колонку нужного года. После смены нажмите «Распознать повторно».</small></label><label className="ft-upload"><Upload size={21} /><span>Выберите отчёт <small>PDF, XLSX или CSV · до 10 МБ · до 20 файлов</small></span><input ref={fileInput} aria-label="Файл отчёта компании" type="file" accept=".pdf,.xlsx,.csv" disabled={busy || loading} onChange={e => { const selected = e.target.files?.[0] ?? null; setFile(selected); setExtracted(false); if (selected && /\.(pdf|csv)$/i.test(selected.name)) void extract(selected); }} /></label>{file && <p className="ft-file-name">{file.name}{extracted && ' · показатели заполнены'}</p>}{file && /\.(pdf|csv)$/i.test(file.name) && <button type="button" className="text-button" disabled={busy || loading} onClick={() => void extract(file)}>Распознать повторно</button>}<button className="button primary" disabled={busy || loading || !file || !company.trim() || !period.trim() || !!result.error}>{busy ? 'Обрабатываем…' : 'Сохранить отчёт и показатели'}</button></form>
     {error && <div className="alert" role="alert"><span>{error}</span><button disabled={busy} onClick={() => void action(async () => { setReports(await CompanyReports.list()); setLoading(false); })}>Обновить список</button></div>}
     {notice && <p className="ft-success" role="status">{notice}</p>}
     <div className="ft-report-list">{loading ? <p role="status">Загружаем отчёты…</p> : !reports.length ? <div className="ft-empty"><FileText size={26} /><p>Сохранённых отчётов пока нет</p></div> : reports.map(report => <article key={report.id}><FileText size={20} /><div className="ft-report-copy"><h3>{report.company}</h3><p>{report.period} · {report.filename} · {(report.size / 1024).toFixed(1)} КБ</p><button className="text-button" disabled={busy} onClick={() => { setFigures(Object.fromEntries(figureKeys.map(key => [key, report.metrics[key] ?? ''])) as Figures); setCompany(report.company); setPeriod(report.period); setNotice('Показатели отчёта загружены в калькулятор.'); }}>Загрузить показатели</button></div><div className="ft-report-actions"><button className="icon-button" aria-label={`Скачать отчёт ${report.company}`} disabled={busy} onClick={() => void action(() => CompanyReports.download(report))}><Download size={18} /></button><button className="icon-button" aria-label={`Удалить отчёт ${report.company}`} disabled={busy} onClick={() => setDeleting(report.id)}><Trash2 size={18} /></button></div>{deleting === report.id && <div className="ft-delete"><span>Удалить файл и сохранённые показатели?</span><button disabled={busy} onClick={() => void action(async () => { await CompanyReports.remove(report.id); setReports(previous => previous.filter(item => item.id !== report.id)); setDeleting(null); setNotice('Отчёт удалён.'); })}>Удалить</button><button disabled={busy} onClick={() => setDeleting(null)}>Отмена</button></div>}</article>)}</div>
   </section></div>;
 }
-export function FinanceTools() {
+export function FinanceTools({ onChanged }: { onChanged?: () => void }) {
   const [tab, setTab] = useState<typeof tabs[number]['id']>('deposit');
   return <div className="finance-tools"><div className="ft-tabs" role="tablist" aria-label="Финансовые расчёты" onKeyDown={e => {
     const index = tabs.findIndex(item => item.id === tab);
     const next = e.key === 'ArrowRight' ? (index + 1) % tabs.length : e.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
     if (next !== null) { e.preventDefault(); setTab(tabs[next].id); document.getElementById(`ft-tab-${tabs[next].id}`)?.focus(); }
   }}>{tabs.map(item => <button key={item.id} id={`ft-tab-${item.id}`} role="tab" type="button" aria-selected={tab === item.id} aria-controls={`ft-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
-    {tabs.map(item => <div key={item.id} id={`ft-panel-${item.id}`} role="tabpanel" aria-labelledby={`ft-tab-${item.id}`} hidden={tab !== item.id}>{item.id === 'deposit' ? <DepositCalculator /> : item.id === 'tax' ? <TaxCalculator /> : item.id === 'bonds' ? <BondCalculator /> : <CompaniesCalculator />}</div>)}
+    {tabs.map(item => <div key={item.id} id={`ft-panel-${item.id}`} role="tabpanel" aria-labelledby={`ft-tab-${item.id}`} hidden={tab !== item.id}>{item.id === 'deposit' ? <><DepositCalculator /><SavedDeposits onChanged={onChanged} /></> : item.id === 'tax' ? <TaxCalculator /> : item.id === 'bonds' ? <BondCalculator /> : <CompaniesCalculator />}</div>)}
   </div>;
 }

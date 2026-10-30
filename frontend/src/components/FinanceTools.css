@@ -36,3 +36,8 @@
 @media (max-width: 680px) { nav.bottom-nav { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); } nav.bottom-nav button { font-size: 9px; padding: 5px 2px; } }
 @media (max-width: 1100px) { .ft-calculator { grid-template-columns: minmax(0, 1fr); }.ft-multiples { grid-template-columns: repeat(3, minmax(0, 1fr)); }.ft-multiples > div { padding: 18px 12px; border-bottom: 1px solid var(--line); }.ft-multiples > div:first-child { padding-left: 12px; } }
 @media (max-width: 680px) { .ft-tabs { gap: 0; margin-bottom: 18px; }.ft-tabs button { flex: 1; padding: 12px 9px; font-size: 12px; }.ft-fields { gap: 16px; grid-template-columns: minmax(0, 1fr); }.ft-result { padding: 24px; border-radius: 16px; }.ft-result > output { font-size: 30px; }.ft-multiples { grid-template-columns: repeat(2, minmax(0, 1fr)); }.ft-multiples > div { border-right: 0; }.ft-multiples output { font-size: 25px; }.ft-inputs h2, .ft-reports h2 { font-size: 18px; }.ft-upload { padding: 16px; }.ft-reports .button { width: 100%; font-size: 12px; }.ft-calculator, .ft-companies { gap: 18px; } }
+
+.ft-saved-deposits { margin-top: 24px; }
+.ft-deposit-fields { border: 0; padding: 0; min-width: 0; }
+.ft-deposit-fields .ft-note { color: var(--ft-subtle); font-size: 12px; line-height: 1.6; margin: 20px 0; }
+.ft-reports form > .text-button { margin: 0 16px 16px 0; }

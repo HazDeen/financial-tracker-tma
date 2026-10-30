@@ -1,4 +1,4 @@
-"""Private report attachments and user-entered financial figures; no automatic extraction."""
+"""Private report attachments, extraction and financial figures."""
 import json
 from decimal import Decimal
 from io import BytesIO
@@ -9,6 +9,8 @@ from zipfile import BadZipFile, ZipFile
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
+from app.services.company_import import extract_figures
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +46,22 @@ async def list_reports(user_id: int = Depends(get_current_user_id), db: AsyncSes
     reports = (await db.scalars(select(CompanyReport).where(CompanyReport.user_id == user_id)
                                .order_by(CompanyReport.id.desc()))).all()
     return [summary(report) for report in reports]
+
+
+@router.post("/extract")
+async def extract_report(file: UploadFile = File(...), value_column: int = Form(0, ge=0, le=9), user_id: int = Depends(get_current_user_id)):
+    suffix = PurePosixPath(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".csv"}:
+        raise HTTPException(422, "Для автозаполнения выберите PDF или CSV")
+    content = await file.read(MAX_SIZE + 1)
+    if len(content) > MAX_SIZE:
+        raise HTTPException(413, "Размер отчёта — не больше 10 МБ")
+    if not content:
+        raise HTTPException(422, "Файл пуст")
+    try:
+        return await run_in_threadpool(extract_figures, content, suffix, value_column)
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(422, str(exc))
 
 
 @router.post("", status_code=201)

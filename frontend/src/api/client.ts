@@ -4,7 +4,8 @@ import axios from 'axios';
 
 import type { 
   MonthlyReportResponse, 
-  AIAdvisorResponse, 
+  AIAdvisorResponse,
+  AdvisorMessage,
   SalarySummaryResponse,
   SavingsGoalResponse,
   RecurringResponse,
@@ -57,6 +58,9 @@ api.interceptors.response.use(response => response, error => {
 });
 
 export const FinanceService = {
+  chatAdvice: async (start_date: string, end_date: string, message: string, history: AdvisorMessage[]): Promise<AIAdvisorResponse> => {
+    return (await api.post('/ai-advisor/chat', { start_date, end_date, message, history }, { timeout: 35000 })).data;
+  },
   previewStatement: async (file: File) => {
     const body = new FormData(); body.append('file', file);
     return (await api.post('/statements/preview', body, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
