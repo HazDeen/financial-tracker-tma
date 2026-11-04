@@ -6,18 +6,18 @@ Frontend обслуживается по `/`. Все адреса `/api` и `/ap
 
 ## Полное обновление сайта, API и APK
 
-Сначала загрузите подписанный `moi-finansy-1.5.0.apk` в `/home/hazdeen/` через SFTP. Затем на сервере:
+Сначала загрузите подписанный `moi-finansy-1.5.1.apk` в `/home/hazdeen/` через SFTP. Затем на сервере:
 
 ```sh
 cd /var/www/smart-finance
 git pull --ff-only
-bash scripts/update-server.sh /home/hazdeen/moi-finansy-1.5.0.apk
+bash scripts/update-server.sh /home/hazdeen/moi-finansy-1.5.1.apk
 ```
 
 Скрипт проверяет контрольную сумму APK, находит Python-окружение backend, применяет миграции (до `f614c540d254`, включая отчёты компаний и вклады), копирует APK в `frontend/public/`, собирает frontend с `/api/v1`, перезапускает `smart-finance-api`, исправляет конфигурацию Caddy и проверяет ответы API. База берётся из существующего `backend/.env` или переменной `DATABASE_URL`; используйте те же настройки, с которыми запущен backend. Если Python находится в другом каталоге, передайте его явно:
 
 ```sh
-FINANCE_PYTHON=/полный/путь/к/python bash scripts/update-server.sh /home/hazdeen/moi-finansy-1.5.0.apk
+FINANCE_PYTHON=/полный/путь/к/python bash scripts/update-server.sh /home/hazdeen/moi-finansy-1.5.1.apk
 ```
 
 Все Caddy-сайты, кроме `finance.hazdeen.xyz`, сохраняются. Перед заменой конфигурация проверяется через `caddy validate`; резервная копия хранится в `/var/backups/smart-finance/`. Если перезагрузка конфигурации не удаётся, скрипт возвращает предыдущий файл.

@@ -69,6 +69,49 @@ class ParserTests(unittest.TestCase):
             PDFParser.parse_text('Альфа-Банк\n01.10.2026 Магазин 250,00 RUR')
 
 
+class UploadLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_file_size_boundaries_for_reports_and_statements(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import HTTPException
+        from app.core.uploads import MAX_UPLOAD_SIZE
+        from app.api.v1.endpoints.company_reports import extract_report, upload_report
+        from app.services.statement_service import StatementService
+
+        class SizedContent:
+            # Exercise the real 100 MiB boundary without allocating hundreds of MiB per case.
+            def __init__(self, size): self.size = size
+            def __len__(self): return self.size
+            def __contains__(self, item): return False
+
+        self.assertEqual(MAX_UPLOAD_SIZE, 104857600)
+        for size in [MAX_UPLOAD_SIZE - 1, MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE + 1]:
+            for operation in ['extract', 'save', 'statement']:
+                with self.subTest(size=size, operation=operation):
+                    upload = MagicMock(filename='report.csv')
+                    upload.read = AsyncMock(return_value=SizedContent(size))
+                    db = MagicMock()
+                    db.scalar = AsyncMock(return_value=0)
+                    db.commit = AsyncMock()
+                    db.refresh = AsyncMock()
+                    with patch('app.api.v1.endpoints.company_reports.run_in_threadpool', new_callable=AsyncMock, return_value={'metrics': {'revenue': '100'}}), \
+                         patch('app.services.statement_service.run_in_threadpool', new_callable=AsyncMock, return_value=[object()]):
+                        async def call():
+                            if operation == 'extract':
+                                return await extract_report(file=upload, value_column=0, user_id=1)
+                            if operation == 'save':
+                                return await upload_report(company='Test', period='2026', metrics='{}', file=upload, user_id=1, db=db)
+                            return await StatementService.parse_upload(upload)
+                        if size > MAX_UPLOAD_SIZE:
+                            with self.assertRaises(HTTPException) as caught:
+                                await call()
+                            self.assertEqual(caught.exception.status_code, 413)
+                            self.assertIn('100 МБ', caught.exception.detail)
+                            db.commit.assert_not_awaited()
+                        else:
+                            self.assertTrue(await call())
+                    upload.read.assert_awaited_once_with(MAX_UPLOAD_SIZE + 1)
+
+
 class RoutingTests(unittest.TestCase):
     def test_api_root_and_unknown_routes_never_return_frontend(self):
         with TestClient(app) as client:
@@ -109,6 +152,28 @@ class WebTests(unittest.TestCase):
         response = self.client.post('/api/v1/auth/register', json=self.account)
         self.assertEqual(response.status_code, 201, response.text)
         self.user_id = response.json()['id']
+
+    def test_company_files_above_old_ten_mb_limit(self):
+        content = b'metric;value\nrevenue;1000\n' + (b'notes_' + b'x' * 2048 + b';ignored\n') * 6000
+        self.assertGreater(len(content), 10 * 1024 * 1024)
+        response = self.client.post('/api/v1/company-reports/extract', files={'file': ('large.csv', content)})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['metrics']['revenue'], '1000')
+        response = self.client.post('/api/v1/company-reports', data={'company': 'Большой отчёт', 'period': '2026'},
+                                    files={'file': ('large.csv', content)})
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()['size'], len(content))
+        report_id = response.json()['id']
+        self.assertEqual(self.client.get(f'/api/v1/company-reports/{report_id}/file').content, content)
+        self.assertEqual(self.client.delete(f'/api/v1/company-reports/{report_id}').status_code, 204)
+
+    def test_statement_preview_above_old_ten_mb_limit(self):
+        content = b'date;amount;description\n' + (b'2026-10-01;-1;' + b'x' * 1300 + b'\n') * 9000
+        self.assertGreater(len(content), 10 * 1024 * 1024)
+        response = self.client.post('/api/v1/statements/preview', files={'file': ('large.csv', content)})
+        self.assertEqual(response.status_code, 200, response.text[:500])
+        self.assertEqual(response.json()['total'], 9000)
+        self.assertEqual(Decimal(response.json()['expense']), Decimal('9000'))
 
     def test_company_report_extract_preview_and_save(self):
         path = '/api/v1/company-reports'

@@ -7,6 +7,7 @@ from fastapi import UploadFile, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 from app.models.finance import Transaction
+from app.core.uploads import MAX_UPLOAD_SIZE
 from app.parsers.csv_parser import CSVParser
 from app.parsers.pdf_parser import PDFParser
 from app.schemas.statements import StatementUploadResponse
@@ -15,9 +16,9 @@ from app.schemas.statements import StatementUploadResponse
 class StatementService:
     @staticmethod
     async def parse_upload(file: UploadFile):
-        content = await file.read(10 * 1024 * 1024 + 1)
-        if len(content) > 10 * 1024 * 1024:
-            raise HTTPException(413, "Максимальный размер выписки — 10 МБ")
+        content = await file.read(MAX_UPLOAD_SIZE + 1)
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(413, "Максимальный размер выписки — 100 МБ")
         filename = (file.filename or "").lower()
         if not content:
             raise HTTPException(422, "Файл пуст")

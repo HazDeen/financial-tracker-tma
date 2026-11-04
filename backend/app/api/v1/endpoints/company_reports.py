@@ -18,10 +18,11 @@ from sqlalchemy.orm import undefer
 
 from app.core.auth import get_current_user_id
 from app.core.database import get_db
+from app.core.uploads import MAX_UPLOAD_SIZE
 from app.models.company_report import CompanyReport
 
 router = APIRouter()
-MAX_SIZE = 10 * 1024 * 1024
+MAX_SIZE = MAX_UPLOAD_SIZE
 
 
 class Figures(BaseModel):
@@ -55,7 +56,7 @@ async def extract_report(file: UploadFile = File(...), value_column: int = Form(
         raise HTTPException(422, "Для автозаполнения выберите PDF или CSV")
     content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
-        raise HTTPException(413, "Размер отчёта — не больше 10 МБ")
+        raise HTTPException(413, "Размер отчёта — не больше 100 МБ")
     if not content:
         raise HTTPException(422, "Файл пуст")
     try:
@@ -87,7 +88,7 @@ async def upload_report(
         raise HTTPException(422, "Выберите PDF, XLSX или CSV")
     content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
-        raise HTTPException(413, "Размер отчёта — не больше 10 МБ")
+        raise HTTPException(413, "Размер отчёта — не больше 100 МБ")
     if not content:
         raise HTTPException(422, "Файл пуст")
     if suffix == ".pdf" and not content.startswith(b"%PDF-"):

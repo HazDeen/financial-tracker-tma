@@ -50,7 +50,11 @@ def extract_figures(content: bytes, suffix: str, value_column: int = 0):
         if '\x00' in text:
             raise ValueError('Выберите текстовый CSV')
         try:
-            dialect = csv.Sniffer().sniff(text[:8192], delimiters=';,\t')
+            sample = text[:8192]
+            # A truncated last row can hide an otherwise consistent delimiter in large CSVs.
+            if len(text) > len(sample) and '\n' in sample:
+                sample = sample.rsplit('\n', 1)[0]
+            dialect = csv.Sniffer().sniff(sample, delimiters=';,\t')
             rows = list(csv.reader(StringIO(text), dialect))
         except csv.Error:
             raise ValueError('Не удалось прочитать CSV. Используйте разделитель ; или запятую.')

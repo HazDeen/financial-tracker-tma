@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_BYTES } from '../lib/uploads';
 import { useRef, useState } from 'react';
 import { FinanceService, errorMessage } from '../api/client';
 
@@ -11,14 +12,14 @@ export function StatementImport({ onSuccess }: { onSuccess: () => void }) {
   const [result, setResult] = useState('');
   const input = useRef<HTMLInputElement>(null);
   return <section className="statement-import">
-    <p>Альфа-Банк, Т-Банк и СберБанк. CSV или PDF с текстовым слоем, до 10 МБ. Учёт в рублях.</p>
+    <p>Альфа-Банк, Т-Банк и СберБанк. CSV или PDF с текстовым слоем, до 100 МБ. Учёт в рублях.</p>
     <p>Сначала проверьте суммы и операции. Сканированные PDF и неподдерживаемые макеты нужно экспортировать в CSV.</p>
     <label className="statement-file">Выбрать выписку
       <input ref={input} type="file" accept=".csv,.pdf" disabled={busy} onChange={async event => {
         const selected = event.target.files?.[0];
         setPreview(null); setResult(''); setError(''); setFile(null);
         if (!selected) return;
-        if (selected.size > 10 * 1024 * 1024) { setError('Максимальный размер — 10 МБ'); return; }
+        if (selected.size > MAX_UPLOAD_BYTES) { setError('Максимальный размер — 100 МБ'); return; }
         setBusy(true);
         try { setPreview(await FinanceService.previewStatement(selected)); setFile(selected); }
         catch (err) { setError(errorMessage(err)); }

@@ -1,3 +1,4 @@
+import { FILE_UPLOAD_TIMEOUT_MS } from '../lib/uploads';
 // frontend/src/api/client.ts
 import axios from 'axios';
 
@@ -63,7 +64,7 @@ export const FinanceService = {
   },
   previewStatement: async (file: File) => {
     const body = new FormData(); body.append('file', file);
-    return (await api.post('/statements/preview', body, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
+    return (await api.post('/statements/preview', body, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: FILE_UPLOAD_TIMEOUT_MS })).data;
   },
   updateTransaction: async (id: number, payload: unknown) => (await api.put(`/transactions/${id}`, payload)).data,
   deleteTransaction: async (id: number) => { await api.delete(`/transactions/${id}`); },
@@ -99,6 +100,7 @@ export const FinanceService = {
     void userId;
     const { data } = await api.post(`/statements/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: FILE_UPLOAD_TIMEOUT_MS,
     });
     return data;
   },

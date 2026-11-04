@@ -2,19 +2,19 @@
 # Run on the existing Linux server after git pull and uploading the signed APK.
 set -euo pipefail
 FINANCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FINANCE_APK="${1:-/home/hazdeen/moi-finansy-1.5.0.apk}"
+FINANCE_APK="${1:-/home/hazdeen/moi-finansy-1.5.1.apk}"
 cd "$FINANCE_ROOT"
 for finance_command in node npm pm2 caddy systemctl python3 curl sha256sum; do
   command -v "$finance_command" >/dev/null || { echo "Required command missing: $finance_command" >&2; exit 1; }
 done
 if [ ! -f "$FINANCE_APK" ]; then
-  echo "Upload moi-finansy-1.5.0.apk to $FINANCE_APK first, or pass its path as the first argument." >&2
+  echo "Upload moi-finansy-1.5.1.apk to $FINANCE_APK first, or pass its path as the first argument." >&2
   exit 1
 fi
-FINANCE_EXPECTED_SHA="$(awk 'NR == 1 {print $1}' android/SHA256SUMS-1.5.0.txt)"
+FINANCE_EXPECTED_SHA="$(awk 'NR == 1 {print $1}' android/SHA256SUMS-1.5.1.txt)"
 FINANCE_ACTUAL_SHA="$(sha256sum "$FINANCE_APK" | awk '{print $1}')"
 if [ "$FINANCE_ACTUAL_SHA" != "$FINANCE_EXPECTED_SHA" ]; then
-  echo 'APK checksum mismatch. Upload the signed release APK 1.5.0 again.' >&2
+  echo 'APK checksum mismatch. Upload the signed release APK 1.5.1 again.' >&2
   exit 1
 fi
 if [ -z "${DATABASE_URL:-}" ] && [ ! -f backend/.env ]; then
@@ -36,7 +36,7 @@ fi
 printf 'Applying database migrations using %s\n' "$FINANCE_PYTHON"
 (cd backend && "$FINANCE_PYTHON" -m alembic upgrade head)
 # Keep the APK in public so every future frontend build includes it.
-install -m 644 "$FINANCE_APK" frontend/public/moi-finansy-1.5.0.apk
+install -m 644 "$FINANCE_APK" frontend/public/moi-finansy-1.5.1.apk
 npm ci --prefix frontend
 VITE_API_URL=/api/v1 npm run build --prefix frontend
 pm2 restart smart-finance-api
@@ -47,4 +47,4 @@ else
   sudo python3 scripts/configure-caddy.py
 fi
 python3 scripts/check-server.py
-printf 'Updated. APK: https://finance.hazdeen.xyz/moi-finansy-1.5.0.apk\n'
+printf 'Updated. APK: https://finance.hazdeen.xyz/moi-finansy-1.5.1.apk\n'

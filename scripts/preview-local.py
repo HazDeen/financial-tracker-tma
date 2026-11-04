@@ -37,14 +37,14 @@ class Preview(BaseHTTPRequestHandler):
         if self.headers.get('Origin') not in (None, ORIGIN):
             return self.send_error(403)
         size = int(self.headers.get('Content-Length', '0'))
-        if size > 11 * 1024 * 1024:
+        if size > 101 * 1024 * 1024:
             return self.send_error(413)
         data = self.rfile.read(size) if size else None
         headers = {k: v for k, v in self.headers.items() if k.lower() in ('cookie', 'content-type', 'accept')}
         headers['Origin'] = 'http://127.0.0.1:8000'
         request = Request('http://127.0.0.1:8000' + self.path, data=data, method=self.command, headers=headers)
         try:
-            response = urlopen(request, timeout=120)
+            response = urlopen(request, timeout=300)
         except HTTPError as error:
             response = error
         self.send_response(response.status)
