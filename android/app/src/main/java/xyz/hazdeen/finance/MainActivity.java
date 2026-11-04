@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
                 Intent choose = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 choose.addCategory(Intent.CATEGORY_OPENABLE);
                 choose.setType("*/*");
-                choose.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/pdf","text/csv","text/comma-separated-values","application/vnd.ms-excel","text/plain"});
+                choose.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/pdf","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","text/csv","text/comma-separated-values","application/vnd.ms-excel","text/plain"});
                 try { startActivityForResult(choose, 101); }
                 catch (android.content.ActivityNotFoundException error) { fileResult.onReceiveValue(null); fileResult = null; }
                 return true;
