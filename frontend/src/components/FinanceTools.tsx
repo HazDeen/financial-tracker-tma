@@ -70,30 +70,37 @@ function CompaniesCalculator() {
   const [figures, setFigures] = useState<Figures>(emptyFigures); const [company, setCompany] = useState(''); const [period, setPeriod] = useState('2025, год');
   const [file, setFile] = useState<File | null>(null); const [reports, setReports] = useState<CompanyReport[]>([]);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [extractionError, setExtractionError] = useState('');
+  const [autoExtractPdf, setAutoExtractPdf] = useState(true);
   const [valueColumn, setValueColumn] = useState(0);
   const [extracted, setExtracted] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null); const fileInput = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
+  const pdfLimitId = useId();
   const result = calculate(() => multiples(figures));
+  const hasFigures = figureKeys.some(key => figures[key].trim() !== '');
+  const fileTooLarge = file !== null && file.size > MAX_UPLOAD_BYTES;
   useEffect(() => { let alive = true; CompanyReports.list().then(data => { if (alive) setReports(data); }).catch(e => { if (alive) setError(errorMessage(e, 'Не удалось загрузить отчёты')); }).finally(() => { if (alive) setLoading(false); }); return () => { alive = false; }; }, []);
-  const action = async (fn: () => Promise<void>) => {
+  const action = async (fn: () => Promise<void>, onError = setError) => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(''); setNotice('');
-    try { await fn(); } catch (e) { setError(e instanceof Error ? errorMessage(e, e.message) : 'Не удалось выполнить действие'); }
+    try { await fn(); } catch (e) { onError(e instanceof Error ? errorMessage(e, e.message) : 'Не удалось выполнить действие'); }
     finally { lock.current = false; setBusy(false); }
   };
   const extract = (selected: File) => action(async () => {
-    if (selected.size > MAX_UPLOAD_BYTES) throw new Error('Размер отчёта — не больше 100 МБ');
+    setExtractionError('');
+    setExtracted(false);
     const parsed = await CompanyReports.extract(selected, valueColumn);
     setFigures({ ...emptyFigures(), ...parsed.metrics }); setExtracted(true);
     setNotice(`Распознано показателей: ${Object.keys(parsed.metrics).length}. ${parsed.warnings.join(' ')}`);
-  });
+  }, setExtractionError);
   const save = () => action(async () => {
     if (!company.trim() || !period.trim() || !file) throw new Error('Укажите компанию, период и выберите файл отчёта');
     if (file.size > MAX_UPLOAD_BYTES) throw new Error('Размер отчёта — не больше 100 МБ');
     const saved = await CompanyReports.upload(company.trim(), period.trim(), file, figureValues(figures));
     setReports(previous => [saved, ...previous]); setFile(null); if (fileInput.current) fileInput.current.value = '';
-    setNotice('Отчёт и введённые показатели сохранены в аккаунте.');
+    setExtractionError('');
+    setNotice(hasFigures ? 'Отчёт и показатели сохранены в аккаунте.' : 'Отчёт сохранён в аккаунте.');
   });
   return <div className="ft-companies"><section className="panel ft-inputs"><div className="ft-section-title"><div><h2>Показатели компании</h2><p>Все суммы — в рублях, в одном масштабе и по одной отчётности. Прибыль, выручка и EBITDA — за полный год или последние 12 месяцев.</p></div><Calculator size={23} /></div>
     <div className="ft-fields"><label className="ft-field"><span>Компания</span><input value={company} maxLength={160} onChange={e => setCompany(e.target.value)} placeholder="Название компании" /></label><label className="ft-field"><span>Период отчёта</span><input value={period} maxLength={80} onChange={e => setPeriod(e.target.value)} placeholder="Например, 2025, год" /></label>
@@ -103,8 +110,35 @@ function CompaniesCalculator() {
     <div className="ft-multiples" aria-label="Рассчитанные показатели">{explanations.map(([key, title, formula]) => <div key={key}><span>{title}</span><output>{result.value?.[key] == null ? '—' : result.value[key].toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + (key === 'roe' ? '%' : '×')}</output><small>{formula}</small></div>)}</div>
     <p className="ft-note">Сравнивайте компании одной отрасли и сопоставимые периоды. Эти коэффициенты сами по себе не являются рекомендацией купить или продать акции.</p>
     <a className="ft-source" href="https://ipoguide.moex.com/2/0/index.html" target="_blank" rel="noreferrer">О мультипликаторах: руководство Московской биржи ↗</a>
-  </section><section className="panel ft-reports"><h2>Отчёты компаний</h2><p>Загрузите PDF или CSV: найденные показатели заполнят поля выше и пересчитают коэффициенты. Проверьте цифры, укажите компанию и период, затем сохраните. XLSX можно прикрепить с ручным вводом показателей.</p>
-    <a className="ft-source" href="/examples/company-report.csv" download>Скачать пример CSV для автозаполнения</a><form onSubmit={e => { e.preventDefault(); void save(); }}><Dropdown label="Колонка сумм в отчёте (слева направо)" value={valueColumn} disabled={busy} onChange={value => { setValueColumn(value); setExtracted(false); }} options={[0, 1, 2, 3].map(column => ({ value: column, label: `${column + 1}-я колонка сумм` }))} hint="Если в отчёте несколько лет, выберите колонку нужного года. После смены нажмите «Распознать повторно»." /><label className="ft-upload"><Upload size={21} /><span>Выберите отчёт <small>PDF, XLSX или CSV · до 100 МБ · до 20 файлов</small></span><input ref={fileInput} aria-label="Файл отчёта компании" type="file" accept=".pdf,.xlsx,.csv" disabled={busy || loading} onChange={e => { const selected = e.target.files?.[0] ?? null; setFile(selected); setExtracted(false); if (selected && /\.(pdf|csv)$/i.test(selected.name)) void extract(selected); }} /></label>{file && <p className="ft-file-name">{file.name}{extracted && ' · показатели заполнены'}</p>}{file && /\.(pdf|csv)$/i.test(file.name) && <button type="button" className="text-button" disabled={busy || loading} onClick={() => void extract(file)}>Распознать повторно</button>}<button className="button primary" disabled={busy || loading || !file || !company.trim() || !period.trim() || !!result.error}>{busy ? 'Обрабатываем…' : 'Сохранить отчёт и показатели'}</button></form>
+  </section><section className="panel ft-reports"><h2>Отчёты компаний</h2><p>Укажите компанию и период в полях выше, выберите файл и сохраните отчёт. Показатели можно заполнить из PDF или CSV либо ввести вручную.</p>
+    <a className="ft-source" href="/examples/company-report.csv" download>Скачать пример CSV для автозаполнения</a>
+    <form onSubmit={e => { e.preventDefault(); void save(); }}>
+      <Dropdown label="Колонка сумм в отчёте (слева направо)" value={valueColumn} disabled={busy} onChange={value => { setValueColumn(value); setExtracted(false); setExtractionError(''); }} options={[0, 1, 2, 3].map(column => ({ value: column, label: `${column + 1}-я колонка сумм` }))} hint="Если в отчёте несколько лет, выберите колонку нужного года и нажмите «Распознать показатели»." />
+      <label className="ft-check">
+        <input type="checkbox" checked={autoExtractPdf} disabled={busy} aria-describedby={pdfLimitId} onChange={e => setAutoExtractPdf(e.target.checked)} />
+        <span>Распознавать показатели при выборе PDF</span>
+      </label>
+      <p id={pdfLimitId} className="ft-file-note">Автозаполнение доступно для PDF до 150 страниц. Для PDF с большим числом страниц снимите галочку перед выбором файла.</p>
+      <label className="ft-upload">
+        <Upload size={21} /><span>Выберите отчёт <small>PDF, XLSX или CSV · до 100 МБ · до 20 файлов</small></span>
+        <input ref={fileInput} aria-label="Файл отчёта компании" type="file" accept=".pdf,.xlsx,.csv" disabled={busy || loading} onChange={e => {
+          const selected = e.target.files?.[0] ?? null;
+          setFile(selected);
+          setExtracted(false);
+          setExtractionError('');
+          setNotice('');
+          if (!selected || selected.size > MAX_UPLOAD_BYTES) return;
+          if (/\.csv$/i.test(selected.name) || (autoExtractPdf && /\.pdf$/i.test(selected.name))) void extract(selected);
+        }} />
+      </label>
+      {file && <p className="ft-file-name">{file.name}{extracted && ' · показатели заполнены'}</p>}
+      {fileTooLarge && <div className="alert" role="alert">Размер отчёта — не больше 100 МБ</div>}
+      {extractionError && <div className="alert" role="alert">{extractionError} Отчёт можно сохранить с текущими показателями.</div>}
+      {file && !fileTooLarge && /\.(pdf|csv)$/i.test(file.name) && <button type="button" className="text-button" disabled={busy || loading} onClick={() => void extract(file)}>Распознать показатели</button>}
+      <button className="button primary" disabled={busy || loading || !file || fileTooLarge || !company.trim() || !period.trim() || !!result.error}>
+        {busy ? 'Обрабатываем…' : hasFigures ? 'Сохранить отчёт и показатели' : 'Сохранить отчёт'}
+      </button>
+    </form>
     {error && <div className="alert" role="alert"><span>{error}</span><button disabled={busy} onClick={() => void action(async () => { setReports(await CompanyReports.list()); setLoading(false); })}>Обновить список</button></div>}
     {notice && <p className="ft-success" role="status">{notice}</p>}
     <div className="ft-report-list">{loading ? <p role="status">Загружаем отчёты…</p> : !reports.length ? <div className="ft-empty"><FileText size={26} /><p>Сохранённых отчётов пока нет</p></div> : reports.map(report => <article key={report.id}><FileText size={20} /><div className="ft-report-copy"><h3>{report.company}</h3><p>{report.period} · {report.filename} · {(report.size / 1024).toFixed(1)} КБ</p><button className="text-button" disabled={busy} onClick={() => { setFigures(Object.fromEntries(figureKeys.map(key => [key, report.metrics[key] ?? ''])) as Figures); setCompany(report.company); setPeriod(report.period); setNotice('Показатели отчёта загружены в калькулятор.'); }}>Загрузить показатели</button></div><div className="ft-report-actions"><button className="icon-button" aria-label={`Скачать отчёт ${report.company}`} disabled={busy} onClick={() => void action(() => CompanyReports.download(report))}><Download size={18} /></button><button className="icon-button" aria-label={`Удалить отчёт ${report.company}`} disabled={busy} onClick={() => setDeleting(report.id)}><Trash2 size={18} /></button></div>{deleting === report.id && <div className="ft-delete"><span>Удалить файл и сохранённые показатели?</span><button disabled={busy} onClick={() => void action(async () => { await CompanyReports.remove(report.id); setReports(previous => previous.filter(item => item.id !== report.id)); setDeleting(null); setNotice('Отчёт удалён.'); })}>Удалить</button><button disabled={busy} onClick={() => setDeleting(null)}>Отмена</button></div>}</article>)}</div>

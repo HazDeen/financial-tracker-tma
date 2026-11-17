@@ -41,3 +41,4 @@
 .ft-deposit-fields { border: 0; padding: 0; min-width: 0; }
 .ft-deposit-fields .ft-note { color: var(--ft-subtle); font-size: 12px; line-height: 1.6; margin: 20px 0; }
 .ft-reports form > .text-button { margin: 0 16px 16px 0; }
+.ft-file-note { margin: 6px 0 0 28px; font-size: 12px; color: var(--ft-subtle); }
